@@ -8,6 +8,7 @@ import { SafeImg } from "@/components/SafeImg";
 import { useDialog } from "@/components/DialogProvider";
 import { OptionModal } from "@/components/customer/OptionModal";
 import { MemoryWelcome, type MemoryProfile } from "@/components/customer/MemoryWelcome";
+import { Spinner } from "@/components/Spinner";
 
 type Restaurant = { id: string; name: string; tagline: string | null; logo: string | null };
 type Table = { id: string; label: string; number: number };
@@ -67,6 +68,9 @@ export default function CustomerApp({
   const [memory, setMemory] = useState<MemoryProfile | null>(null);
   const [memoryDismissed, setMemoryDismissed] = useState(false);
   const [reordering, setReordering] = useState(false);
+  const [savingNickname, setSavingNickname] = useState(false);
+  const [confirmingOptions, setConfirmingOptions] = useState(false);
+  const [submittingOrder, setSubmittingOrder] = useState(false);
   const [view, setView] = useState<"menu" | "status">("menu");
   const [toast, setToast] = useState<string | null>(null);
 
@@ -138,16 +142,22 @@ export default function CustomerApp({
   }
 
   async function saveNickname(name: string) {
-    const device = getDeviceId();
-    const res = await fetch(`/api/session/${sessionToken}/guest`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ deviceId: device, nickname: name || undefined }),
-    });
-    if (res.ok) {
-      const { guest: g } = await res.json();
-      setGuest(g);
-      setShowNickname(false);
+    if (savingNickname) return;
+    setSavingNickname(true);
+    try {
+      const device = getDeviceId();
+      const res = await fetch(`/api/session/${sessionToken}/guest`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ deviceId: device, nickname: name || undefined }),
+      });
+      if (res.ok) {
+        const { guest: g } = await res.json();
+        setGuest(g);
+        setShowNickname(false);
+      }
+    } finally {
+      setSavingNickname(false);
     }
   }
 
@@ -223,21 +233,26 @@ export default function CustomerApp({
     note: string;
     quantity: number;
   }) {
-    if (!guest || !optionModalItem) return;
+    if (!guest || !optionModalItem || confirmingOptions) return;
     const item = optionModalItem;
-    setOptionModalItem(null);
-    flash(`+ ${item.name}`);
-    await fetch(`/api/session/${sessionToken}/cart`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        guestId: guest.id,
-        menuItemId: item.id,
-        quantity,
-        note: note || undefined,
-        choiceIds,
-      }),
-    });
+    setConfirmingOptions(true);
+    try {
+      await fetch(`/api/session/${sessionToken}/cart`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          guestId: guest.id,
+          menuItemId: item.id,
+          quantity,
+          note: note || undefined,
+          choiceIds,
+        }),
+      });
+      setOptionModalItem(null);
+      flash(`+ ${item.name}`);
+    } finally {
+      setConfirmingOptions(false);
+    }
   }
 
   async function updateQty(ci: CartItem, delta: number) {
@@ -263,13 +278,18 @@ export default function CustomerApp({
   }
 
   async function submitOrder() {
-    if (cart.length === 0) return;
-    const res = await fetch(`/api/session/${sessionToken}/order`, { method: "POST" });
-    if (res.ok) {
-      setShowCart(false);
-      setCart([]);
-      flash("🍽️ Bếp đã nhận đơn!");
-      setView("status");
+    if (cart.length === 0 || submittingOrder) return;
+    setSubmittingOrder(true);
+    try {
+      const res = await fetch(`/api/session/${sessionToken}/order`, { method: "POST" });
+      if (res.ok) {
+        setShowCart(false);
+        setCart([]);
+        flash("🍽️ Bếp đã nhận đơn!");
+        setView("status");
+      }
+    } finally {
+      setSubmittingOrder(false);
     }
   }
 
@@ -392,7 +412,13 @@ export default function CustomerApp({
       )}
 
       {/* Nickname dialog */}
-      {showNickname && <NicknameDialog onSave={saveNickname} onSkip={() => setShowNickname(false)} />}
+      {showNickname && (
+        <NicknameDialog
+          onSave={saveNickname}
+          onSkip={() => setShowNickname(false)}
+          saving={savingNickname}
+        />
+      )}
 
       {/* Option picker modal */}
       {optionModalItem && (
@@ -400,6 +426,7 @@ export default function CustomerApp({
           item={optionModalItem}
           onClose={() => setOptionModalItem(null)}
           onConfirm={confirmOptions}
+          submitting={confirmingOptions}
         />
       )}
 
@@ -413,6 +440,7 @@ export default function CustomerApp({
           onDec={(c) => updateQty(c, -1)}
           onNote={setNote}
           onSubmit={submitOrder}
+          submitting={submittingOrder}
           total={total}
         />
       )}
@@ -537,9 +565,11 @@ function MenuCard({ item, onAdd }: { item: MenuItem; onAdd: () => void }) {
 function NicknameDialog({
   onSave,
   onSkip,
+  saving,
 }: {
   onSave: (name: string) => void;
   onSkip: () => void;
+  saving: boolean;
 }) {
   const [name, setName] = useState("");
   return (
@@ -557,20 +587,24 @@ function NicknameDialog({
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="Ví dụ: Minh"
-          className="mt-6 w-full rounded-xl border border-ink-200 px-4 py-3 text-center text-lg outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
+          disabled={saving}
+          className="mt-6 w-full rounded-xl border border-ink-200 px-4 py-3 text-center text-lg outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200 disabled:opacity-60"
         />
         <div className="mt-5 grid grid-cols-2 gap-3">
           <button
             onClick={onSkip}
-            className="rounded-xl border border-ink-200 py-3 font-medium text-ink-700"
+            disabled={saving}
+            className="rounded-xl border border-ink-200 py-3 font-medium text-ink-700 disabled:opacity-50"
           >
             Bỏ qua
           </button>
           <button
             onClick={() => onSave(name.trim())}
-            className="rounded-xl bg-brand-600 py-3 font-semibold text-white"
+            disabled={saving}
+            className="inline-flex items-center justify-center gap-2 rounded-xl bg-brand-600 py-3 font-semibold text-white disabled:opacity-60"
           >
-            Xong
+            {saving && <Spinner className="h-4 w-4" />}
+            {saving ? "Đang lưu..." : "Xong"}
           </button>
         </div>
       </div>
@@ -586,6 +620,7 @@ function CartDrawer({
   onDec,
   onNote,
   onSubmit,
+  submitting,
   total,
 }: {
   cart: CartItem[];
@@ -595,6 +630,7 @@ function CartDrawer({
   onDec: (c: CartItem) => void;
   onNote: (c: CartItem, note: string) => void;
   onSubmit: () => void;
+  submitting: boolean;
   total: number;
 }) {
   return (
@@ -639,10 +675,11 @@ function CartDrawer({
           </div>
           <button
             onClick={onSubmit}
-            disabled={cart.length === 0}
-            className="mt-4 w-full rounded-2xl bg-brand-600 py-4 text-lg font-bold text-white shadow-lg shadow-brand-600/30 transition hover:bg-brand-700 disabled:opacity-40"
+            disabled={cart.length === 0 || submitting}
+            className="mt-4 flex w-full items-center justify-center gap-2 rounded-2xl bg-brand-600 py-4 text-lg font-bold text-white shadow-lg shadow-brand-600/30 transition hover:bg-brand-700 disabled:opacity-40"
           >
-            Gửi Order → Bếp
+            {submitting && <Spinner className="h-5 w-5" />}
+            {submitting ? "Đang gửi đơn..." : "Gửi Order → Bếp"}
           </button>
         </div>
       </div>
@@ -955,9 +992,14 @@ function OrderStatus({
         <button
           onClick={callBill}
           disabled={billBusy || !!billRequestedAt}
-          className="rounded-2xl border border-ink-300 bg-white py-4 font-bold text-ink-950 disabled:cursor-not-allowed disabled:bg-ink-100 disabled:text-ink-500"
+          className="inline-flex items-center justify-center gap-2 rounded-2xl border border-ink-300 bg-white py-4 font-bold text-ink-950 disabled:cursor-not-allowed disabled:bg-ink-100 disabled:text-ink-500"
         >
-          {billRequestedAt ? "🛎️ Đã gọi tính tiền" : "🛎️ Gọi tính tiền"}
+          {billBusy && <Spinner className="h-4 w-4" />}
+          {billBusy
+            ? "Đang gọi..."
+            : billRequestedAt
+              ? "🛎️ Đã gọi tính tiền"
+              : "🛎️ Gọi tính tiền"}
         </button>
       </div>
     </div>

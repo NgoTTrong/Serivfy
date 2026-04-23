@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { formatVND } from "@/lib/format";
+import { Spinner } from "@/components/Spinner";
 
 export type OptionChoice = {
   id: string;
@@ -34,9 +35,10 @@ type Props = {
     note: string;
     quantity: number;
   }) => void;
+  submitting?: boolean;
 };
 
-export function OptionModal({ item, onClose, onConfirm }: Props) {
+export function OptionModal({ item, onClose, onConfirm, submitting = false }: Props) {
   // For single-choice groups: default to first choice (if required) or none.
   const initialSelection = useMemo(() => {
     const sel: Record<string, Set<string>> = {};
@@ -229,12 +231,15 @@ export function OptionModal({ item, onClose, onConfirm }: Props) {
             </div>
             <button
               onClick={confirm}
-              disabled={!allRequiredMet}
-              className="flex-1 ml-3 rounded-2xl bg-brand-600 py-3.5 font-bold text-white shadow-lg shadow-brand-600/30 transition hover:bg-brand-700 disabled:bg-ink-300 disabled:shadow-none"
+              disabled={!allRequiredMet || submitting}
+              className="ml-3 flex flex-1 items-center justify-center gap-2 rounded-2xl bg-brand-600 py-3.5 font-bold text-white shadow-lg shadow-brand-600/30 transition hover:bg-brand-700 disabled:bg-ink-300 disabled:shadow-none"
             >
-              {allRequiredMet
-                ? `Thêm ${qty > 1 ? qty + " món — " : ""}${formatVND(totalPrice)}`
-                : "Chọn đủ các mục bắt buộc"}
+              {submitting && <Spinner className="h-4 w-4" />}
+              {submitting
+                ? "Đang thêm..."
+                : allRequiredMet
+                  ? `Thêm ${qty > 1 ? qty + " món — " : ""}${formatVND(totalPrice)}`
+                  : "Chọn đủ các mục bắt buộc"}
             </button>
           </div>
         </div>
