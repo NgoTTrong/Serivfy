@@ -1,0 +1,21 @@
+node_modules
+.next
+out
+build
+dist
+
+.env
+.env.local
+.env.*.local
+
+prisma/dev.db
+prisma/dev.db-journal
+
+.DS_Store
+*.log
+.vercel
+
+# Local screenshots / MCP artifacts
+/*.png
+.playwright-mcp/
+tsconfig.tsbuildinfo
