@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Select } from "@/components/Select";
+import { Spinner } from "@/components/Spinner";
 
 type Result =
   | { status: "APPROVED"; restaurantId: string; slug: string; message: string }
@@ -196,8 +197,9 @@ export default function SignupForm() {
           <button
             type="submit"
             disabled={busy}
-            className="mt-6 w-full rounded-2xl bg-brand-600 py-4 text-base font-bold text-white shadow-lg shadow-brand-600/30 transition hover:-translate-y-0.5 hover:bg-brand-700 disabled:opacity-60"
+            className="mt-6 flex w-full items-center justify-center gap-2 rounded-2xl bg-brand-600 py-4 text-base font-bold text-white shadow-lg shadow-brand-600/30 transition hover:-translate-y-0.5 hover:bg-brand-700 disabled:opacity-60"
           >
+            {busy && <Spinner className="h-5 w-5" />}
             {busy ? "Đang gửi..." : "Gửi yêu cầu đăng ký →"}
           </button>
 

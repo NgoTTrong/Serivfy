@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { formatVND } from "@/lib/format";
 import { useDialog } from "./DialogProvider";
+import { Spinner } from "./Spinner";
 
 type Line = {
   orderItemIds: string[];
@@ -549,8 +550,9 @@ export function CashierDrawer({
                 <button
                   onClick={confirmPay}
                   disabled={busy || (method === "CASH" && cashShort)}
-                  className="mt-2 w-full rounded-2xl bg-brand-600 py-4 text-base font-bold text-white shadow-lg shadow-brand-600/30 transition hover:bg-brand-700 disabled:bg-ink-300 disabled:shadow-none"
+                  className="mt-2 flex w-full items-center justify-center gap-2 rounded-2xl bg-brand-600 py-4 text-base font-bold text-white shadow-lg shadow-brand-600/30 transition hover:bg-brand-700 disabled:bg-ink-300 disabled:shadow-none"
                 >
+                  {busy && <Spinner className="h-5 w-5" />}
                   {busy ? "Đang xử lý..." : `Thanh toán ${formatVND(total)}`}
                 </button>
               </div>

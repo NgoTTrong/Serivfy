@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import Link from "next/link";
+import { Spinner } from "@/components/Spinner";
 
 export default function LoginForm() {
   const router = useRouter();
@@ -79,8 +80,9 @@ export default function LoginForm() {
           <button
             type="submit"
             disabled={busy}
-            className="mt-6 w-full rounded-xl bg-brand-600 py-3 font-semibold shadow-lg shadow-brand-600/40 transition hover:bg-brand-500 disabled:opacity-50"
+            className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-brand-600 py-3 font-semibold shadow-lg shadow-brand-600/40 transition hover:bg-brand-500 disabled:opacity-50"
           >
+            {busy && <Spinner className="h-4 w-4" />}
             {busy ? "Đang đăng nhập..." : "Đăng nhập"}
           </button>
           <Link

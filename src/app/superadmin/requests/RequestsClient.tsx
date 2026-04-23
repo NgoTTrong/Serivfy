@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useDialog } from "@/components/DialogProvider";
 import { Select } from "@/components/Select";
+import { Spinner } from "@/components/Spinner";
 
 type Request = {
   id: string;
@@ -201,14 +202,15 @@ export default function RequestsClient() {
                   <button
                     onClick={() => approve(req)}
                     disabled={busyId === req.id}
-                    className="rounded-xl bg-green-600 py-3 font-semibold text-white shadow-lg shadow-green-600/30 hover:bg-green-500 disabled:opacity-50"
+                    className="flex items-center justify-center gap-2 rounded-xl bg-green-600 py-3 font-semibold text-white shadow-lg shadow-green-600/30 hover:bg-green-500 disabled:opacity-50"
                   >
-                    ✓ Duyệt & tạo cửa hàng
+                    {busyId === req.id && <Spinner className="h-4 w-4" />}
+                    {busyId === req.id ? "Đang duyệt..." : "✓ Duyệt & tạo cửa hàng"}
                   </button>
                   <button
                     onClick={() => reject(req)}
                     disabled={busyId === req.id}
-                    className="rounded-xl border border-red-400/40 bg-red-500/10 py-2 text-sm font-semibold text-red-200 hover:bg-red-500/20"
+                    className="rounded-xl border border-red-400/40 bg-red-500/10 py-2 text-sm font-semibold text-red-200 hover:bg-red-500/20 disabled:opacity-50"
                   >
                     Từ chối
                   </button>

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useDialog } from "@/components/DialogProvider";
 import { Select } from "@/components/Select";
+import { Spinner } from "@/components/Spinner";
 import { formatVND } from "@/lib/format";
 
 type Staff = {
@@ -183,16 +184,18 @@ export default function DetailClient({ id }: { id: string }) {
           <button
             onClick={openChangePlan}
             disabled={busy}
-            className="rounded-full bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-500 disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 rounded-full bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-500 disabled:opacity-50"
           >
+            {busy && <Spinner className="h-3.5 w-3.5" />}
             Đổi plan
           </button>
           {r.planTier === "TRIAL" && (
             <button
               onClick={extendTrial}
               disabled={busy}
-              className="rounded-full bg-amber-500 px-4 py-2 text-sm font-semibold text-ink-950 hover:bg-amber-400 disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 rounded-full bg-amber-500 px-4 py-2 text-sm font-semibold text-ink-950 hover:bg-amber-400 disabled:opacity-50"
             >
+              {busy && <Spinner className="h-3.5 w-3.5" />}
               Gia hạn +14 ngày
             </button>
           )}
@@ -200,16 +203,18 @@ export default function DetailClient({ id }: { id: string }) {
             <button
               onClick={suspend}
               disabled={busy}
-              className="rounded-full bg-red-500/20 px-4 py-2 text-sm font-semibold text-red-200 hover:bg-red-500/30 disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 rounded-full bg-red-500/20 px-4 py-2 text-sm font-semibold text-red-200 hover:bg-red-500/30 disabled:opacity-50"
             >
+              {busy && <Spinner className="h-3.5 w-3.5" />}
               Đình chỉ
             </button>
           ) : (
             <button
               onClick={activate}
               disabled={busy}
-              className="rounded-full bg-green-500/20 px-4 py-2 text-sm font-semibold text-green-200 hover:bg-green-500/30 disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 rounded-full bg-green-500/20 px-4 py-2 text-sm font-semibold text-green-200 hover:bg-green-500/30 disabled:opacity-50"
             >
+              {busy && <Spinner className="h-3.5 w-3.5" />}
               Kích hoạt lại
             </button>
           )}

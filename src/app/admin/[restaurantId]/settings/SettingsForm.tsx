@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useDialog } from "@/components/DialogProvider";
 import { Select } from "@/components/Select";
+import { Spinner } from "@/components/Spinner";
 
 type Restaurant = {
   id: string;
@@ -198,8 +199,9 @@ export default function SettingsForm() {
         <button
           onClick={save}
           disabled={busy}
-          className="rounded-full bg-brand-600 px-6 py-3 font-semibold text-white shadow-lg shadow-brand-600/30 hover:bg-brand-700 disabled:opacity-50"
+          className="inline-flex items-center gap-2 rounded-full bg-brand-600 px-6 py-3 font-semibold text-white shadow-lg shadow-brand-600/30 hover:bg-brand-700 disabled:opacity-50"
         >
+          {busy && <Spinner className="h-4 w-4" />}
           {busy ? "Đang lưu..." : "Lưu cài đặt"}
         </button>
       </div>

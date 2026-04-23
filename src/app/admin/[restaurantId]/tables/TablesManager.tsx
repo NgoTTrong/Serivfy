@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useDialog } from "@/components/DialogProvider";
+import { Spinner } from "@/components/Spinner";
 
 type Table = {
   id: string;
@@ -273,8 +274,9 @@ function EditTable({
           <button
             onClick={save}
             disabled={busy}
-            className="rounded-xl bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white shadow-md shadow-brand-600/30 hover:bg-brand-700 disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 rounded-xl bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white shadow-md shadow-brand-600/30 hover:bg-brand-700 disabled:opacity-50"
           >
+            {busy && <Spinner className="h-4 w-4" />}
             {busy ? "Đang lưu..." : "Lưu thay đổi"}
           </button>
         </div>
