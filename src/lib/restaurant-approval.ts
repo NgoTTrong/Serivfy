@@ -1,4 +1,5 @@
 import { prisma } from "./prisma";
+import { prismaDirect } from "./prisma-direct";
 import { slugify } from "./slug";
 import { seedSampleData } from "./sample-seed";
 import type { PlanTier } from "./plans";
@@ -64,45 +65,51 @@ export async function approveSignupRequest(
   const trialEndsAt =
     planTier === "TRIAL" ? new Date(Date.now() + TRIAL_DAYS * 24 * 3600 * 1000) : null;
 
-  const result = await prisma.$transaction(async (tx) => {
-    const r = await tx.restaurant.create({
-      data: {
-        name: req.restaurantName,
-        slug: finalSlug,
-        phone: req.phone,
-        address: req.address,
-        status: "ACTIVE",
-        planTier,
-        trialEndsAt,
-        approvedAt: new Date(),
-        approvedBy: approver?.id ?? null,
-      },
-    });
-    await tx.staff.create({
-      data: {
-        restaurantId: r.id,
-        name: req.adminName,
-        email: req.adminEmail,
-        role: "ADMIN",
-        passwordHash: req.adminPasswordHash,
-      },
-    });
-    const sample = await seedSampleData(tx as never, {
-      id: r.id,
-      slug: r.slug,
-      planTier: r.planTier,
-    });
-    await tx.signupRequest.update({
-      where: { id: req.id },
-      data: {
-        status: "APPROVED",
-        reviewedBy: approver?.id ?? null,
-        reviewedAt: new Date(),
-        createdRestaurantId: r.id,
-      },
-    });
-    return { r, sample };
-  });
+  // Uses direct connection (bypasses pgbouncer) and a 30s timeout because
+  // seedSampleData writes many rows — pgbouncer transaction pooling would
+  // otherwise drop the interactive transaction mid-flight.
+  const result = await prismaDirect.$transaction(
+    async (tx) => {
+      const r = await tx.restaurant.create({
+        data: {
+          name: req.restaurantName,
+          slug: finalSlug,
+          phone: req.phone,
+          address: req.address,
+          status: "ACTIVE",
+          planTier,
+          trialEndsAt,
+          approvedAt: new Date(),
+          approvedBy: approver?.id ?? null,
+        },
+      });
+      await tx.staff.create({
+        data: {
+          restaurantId: r.id,
+          name: req.adminName,
+          email: req.adminEmail,
+          role: "ADMIN",
+          passwordHash: req.adminPasswordHash,
+        },
+      });
+      const sample = await seedSampleData(tx as never, {
+        id: r.id,
+        slug: r.slug,
+        planTier: r.planTier,
+      });
+      await tx.signupRequest.update({
+        where: { id: req.id },
+        data: {
+          status: "APPROVED",
+          reviewedBy: approver?.id ?? null,
+          reviewedAt: new Date(),
+          createdRestaurantId: r.id,
+        },
+      });
+      return { r, sample };
+    },
+    { timeout: 30_000, maxWait: 10_000 },
+  );
 
   return {
     restaurantId: result.r.id,
