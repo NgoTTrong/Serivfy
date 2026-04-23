@@ -23,6 +23,7 @@ export default function MenuManager() {
   const dialog = useDialog();
   const [cats, setCats] = useState<Category[]>([]);
   const [items, setItems] = useState<Item[]>([]);
+  const [loaded, setLoaded] = useState(false);
   const [editing, setEditing] = useState<Item | null>(null);
   const [addingCat, setAddingCat] = useState(false);
   const [showNew, setShowNew] = useState(false);
@@ -34,6 +35,7 @@ export default function MenuManager() {
     ]);
     setCats(a.categories || []);
     setItems(b.items || []);
+    setLoaded(true);
   }
   useEffect(() => {
     load();
@@ -108,21 +110,56 @@ export default function MenuManager() {
 
       {/* Categories */}
       <div className="mt-6 flex flex-wrap gap-2">
-        {cats.map((c) => (
-          <div
-            key={c.id}
-            className="group inline-flex items-center gap-2 rounded-full bg-white px-4 py-1.5 shadow-sm ring-1 ring-ink-100"
-          >
-            <span className="font-medium">{c.name}</span>
-            <button
-              onClick={() => deleteCat(c)}
-              className="text-xs text-ink-400 opacity-0 transition group-hover:opacity-100 hover:text-red-600"
-            >
-              ✕
-            </button>
-          </div>
-        ))}
+        {!loaded
+          ? Array.from({ length: 5 }).map((_, i) => (
+              <div
+                key={i}
+                className="h-8 w-24 rounded-full bg-ink-100 shimmer"
+              />
+            ))
+          : cats.map((c) => (
+              <div
+                key={c.id}
+                className="group inline-flex items-center gap-2 rounded-full bg-white px-4 py-1.5 shadow-sm ring-1 ring-ink-100"
+              >
+                <span className="font-medium">{c.name}</span>
+                <button
+                  onClick={() => deleteCat(c)}
+                  className="text-xs text-ink-400 opacity-0 transition group-hover:opacity-100 hover:text-red-600"
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
       </div>
+
+      {/* Skeleton items grid while loading */}
+      {!loaded && (
+        <div className="mt-8 space-y-8">
+          {Array.from({ length: 2 }).map((_, i) => (
+            <div key={i}>
+              <div className="mb-3 h-6 w-40 rounded bg-ink-100 shimmer" />
+              <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+                {Array.from({ length: 3 }).map((_, j) => (
+                  <div
+                    key={j}
+                    className="flex gap-3 rounded-2xl border border-ink-100 bg-white p-3"
+                  >
+                    <div className="h-20 w-20 flex-none rounded-xl bg-ink-100 shimmer" />
+                    <div className="flex flex-1 flex-col justify-between py-1">
+                      <div className="space-y-2">
+                        <div className="h-4 w-3/4 rounded bg-ink-100 shimmer" />
+                        <div className="h-3 w-1/2 rounded bg-ink-100 shimmer" />
+                      </div>
+                      <div className="h-4 w-20 rounded bg-ink-100 shimmer" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Items grouped by cat */}
       <div className="mt-8 space-y-8">

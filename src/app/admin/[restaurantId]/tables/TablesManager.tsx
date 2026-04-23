@@ -16,6 +16,7 @@ type Table = {
 export default function TablesManager() {
   const dialog = useDialog();
   const [tables, setTables] = useState<Table[]>([]);
+  const [loaded, setLoaded] = useState(false);
   const [showNew, setShowNew] = useState(false);
   const [previewQr, setPreviewQr] = useState<Table | null>(null);
   const [editing, setEditing] = useState<Table | null>(null);
@@ -23,6 +24,7 @@ export default function TablesManager() {
   async function load() {
     const r = await fetch("/api/admin/tables");
     if (r.ok) setTables((await r.json()).tables || []);
+    setLoaded(true);
   }
   useEffect(() => {
     load();
@@ -66,7 +68,20 @@ export default function TablesManager() {
       </div>
 
       <div className="mt-8 grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-        {tables.map((t) => (
+        {!loaded &&
+          Array.from({ length: 6 }).map((_, i) => (
+            <div
+              key={i}
+              className="h-40 rounded-2xl border border-ink-100 bg-white shimmer"
+            />
+          ))}
+        {loaded &&
+          tables.length === 0 && (
+            <div className="col-span-full rounded-2xl border border-dashed border-ink-200 p-10 text-center text-ink-500">
+              Chưa có bàn nào. Bấm “+ Thêm bàn” để tạo.
+            </div>
+          )}
+        {loaded && tables.map((t) => (
           <div
             key={t.id}
             className={`group relative overflow-hidden rounded-2xl border bg-white p-5 transition hover:shadow-lg ${

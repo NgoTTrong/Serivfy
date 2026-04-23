@@ -163,13 +163,29 @@ export default function CustomersClient() {
             </tr>
           </thead>
           <tbody>
-            {loading && (
-              <tr>
-                <td colSpan={6} className="px-5 py-10 text-center text-ink-500">
-                  Đang tải...
-                </td>
-              </tr>
-            )}
+            {loading &&
+              Array.from({ length: 5 }).map((_, i) => (
+                <tr key={`sk-${i}`} className="border-t border-ink-100">
+                  <td className="px-5 py-4">
+                    <div className="h-4 w-32 rounded bg-ink-100 shimmer" />
+                  </td>
+                  <td className="px-5 py-4">
+                    <div className="h-5 w-16 rounded-full bg-ink-100 shimmer" />
+                  </td>
+                  <td className="px-5 py-4">
+                    <div className="h-4 w-10 rounded bg-ink-100 shimmer" />
+                  </td>
+                  <td className="px-5 py-4">
+                    <div className="ml-auto h-4 w-20 rounded bg-ink-100 shimmer" />
+                  </td>
+                  <td className="px-5 py-4">
+                    <div className="h-4 w-28 rounded bg-ink-100 shimmer" />
+                  </td>
+                  <td className="px-5 py-4">
+                    <div className="h-4 w-16 rounded bg-ink-100 shimmer" />
+                  </td>
+                </tr>
+              ))}
             {!loading && data && data.customers.length === 0 && (
               <tr>
                 <td colSpan={6} className="px-5 py-10 text-center text-ink-500">

@@ -15,11 +15,13 @@ type Staff = {
 export default function StaffManager() {
   const dialog = useDialog();
   const [list, setList] = useState<Staff[]>([]);
+  const [loaded, setLoaded] = useState(false);
   const [showNew, setShowNew] = useState(false);
 
   async function load() {
     const r = await fetch("/api/admin/staff");
     if (r.ok) setList((await r.json()).staff || []);
+    setLoaded(true);
   }
   useEffect(() => {
     load();
@@ -73,7 +75,11 @@ export default function StaffManager() {
                 </span>
                 <div className="min-w-0">
                   <div className="text-[10px] text-ink-500 sm:text-xs">{cfg.label}</div>
-                  <div className="font-display text-xl font-bold sm:text-2xl">{count}</div>
+                  {loaded ? (
+                    <div className="font-display text-xl font-bold sm:text-2xl">{count}</div>
+                  ) : (
+                    <div className="mt-1 h-6 w-8 rounded bg-ink-100 shimmer sm:h-7 sm:w-10" />
+                  )}
                 </div>
               </div>
             </div>
@@ -83,7 +89,21 @@ export default function StaffManager() {
 
       {/* Staff grid */}
       <div className="mt-6 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-        {list.length === 0 && (
+        {!loaded &&
+          Array.from({ length: 4 }).map((_, i) => (
+            <div
+              key={i}
+              className="flex items-center gap-4 rounded-2xl border border-ink-100 bg-white p-4"
+            >
+              <div className="h-14 w-14 flex-none rounded-2xl bg-ink-100 shimmer" />
+              <div className="flex-1 space-y-2">
+                <div className="h-4 w-2/3 rounded bg-ink-100 shimmer" />
+                <div className="h-3 w-1/2 rounded bg-ink-100 shimmer" />
+                <div className="h-3 w-24 rounded bg-ink-100 shimmer" />
+              </div>
+            </div>
+          ))}
+        {loaded && list.length === 0 && (
           <div className="col-span-full rounded-2xl border border-dashed border-ink-200 bg-white p-10 text-center text-ink-500">
             Chưa có nhân viên nào — bấm{" "}
             <span className="font-semibold text-brand-700">+ Thêm nhân viên</span> để bắt đầu.

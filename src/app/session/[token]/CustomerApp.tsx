@@ -325,7 +325,7 @@ export default function CustomerApp({
         </div>
 
         {view === "menu" && (
-          <div className="no-scrollbar flex gap-2 overflow-x-auto px-4 pb-3">
+          <div className="no-scrollbar flex gap-2 overflow-x-auto px-4 pt-1 pb-4">
             {categories.map((c) => (
               <button
                 key={c.id}
