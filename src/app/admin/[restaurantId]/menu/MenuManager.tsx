@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useParams, useRouter } from "next/navigation";
 import { formatVND } from "@/lib/format";
 import { SafeImg } from "@/components/SafeImg";
 import { useDialog } from "@/components/DialogProvider";
@@ -23,6 +24,9 @@ type Item = {
 
 export default function MenuManager() {
   const dialog = useDialog();
+  const router = useRouter();
+  const params = useParams<{ restaurantId: string }>();
+  const restaurantId = params?.restaurantId ?? "";
   const [cats, setCats] = useState<Category[]>([]);
   const [items, setItems] = useState<Item[]>([]);
   const [stations, setStations] = useState<Station[]>([]);
@@ -30,6 +34,9 @@ export default function MenuManager() {
   const [editing, setEditing] = useState<Item | null>(null);
   const [addingCat, setAddingCat] = useState(false);
   const [showNew, setShowNew] = useState(false);
+  const [search, setSearch] = useState("");
+  const [availFilter, setAvailFilter] = useState<"all" | "on" | "off">("all");
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   async function load() {
     const [a, b, s] = await Promise.all([
@@ -54,6 +61,45 @@ export default function MenuManager() {
     });
     load();
   }
+
+  function toggleSelect(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  async function bulkSetAvailable(flag: boolean) {
+    await Promise.all(
+      Array.from(selectedIds).map((id) =>
+        fetch(`/api/admin/menu-items/${id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ isAvailable: flag }),
+        }),
+      ),
+    );
+    setSelectedIds(new Set());
+    dialog.toast({ message: `Đã ${flag ? "bật" : "tắt"} ${selectedIds.size} món`, type: "success" });
+    load();
+  }
+
+  const filteredItems = items.filter((it) => {
+    if (availFilter === "on" && !it.isAvailable) return false;
+    if (availFilter === "off" && it.isAvailable) return false;
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      if (
+        !it.name.toLowerCase().includes(q) &&
+        !(it.description ?? "").toLowerCase().includes(q)
+      ) {
+        return false;
+      }
+    }
+    return true;
+  });
   async function deleteItem(item: Item) {
     const ok = await dialog.confirm({
       icon: "🗑️",
@@ -96,6 +142,20 @@ export default function MenuManager() {
         <div>
           <h1 className="font-display text-3xl font-bold text-ink-950 md:text-4xl">Thực đơn</h1>
           <p className="text-sm text-ink-500">Quản lý danh mục & món ăn</p>
+          <div className="mt-1 flex flex-wrap gap-3">
+            <a
+              href={`/admin/${restaurantId}/menu/modifiers`}
+              className="text-xs font-semibold text-brand-600 hover:underline"
+            >
+              → Thư viện tuỳ chọn
+            </a>
+            <a
+              href={`/admin/${restaurantId}/menu/combos`}
+              className="text-xs font-semibold text-brand-600 hover:underline"
+            >
+              → Combo
+            </a>
+          </div>
         </div>
         <div className="flex gap-2">
           <button
@@ -166,10 +226,65 @@ export default function MenuManager() {
         </div>
       )}
 
+      {/* Search + filter + bulk actions */}
+      <div className="mt-6 flex flex-wrap items-center gap-2">
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Tìm tên món..."
+          className="flex-1 min-w-[200px] rounded-xl border border-ink-200 bg-white px-4 py-2 text-sm"
+        />
+        <div className="flex rounded-xl border border-ink-200 bg-white p-1">
+          {(["all", "on", "off"] as const).map((v) => (
+            <button
+              key={v}
+              onClick={() => setAvailFilter(v)}
+              className={`rounded-lg px-3 py-1 text-xs font-semibold transition ${
+                availFilter === v ? "bg-brand-600 text-white" : "text-ink-600 hover:bg-ink-50"
+              }`}
+            >
+              {v === "all" ? "Tất cả" : v === "on" ? "Đang bán" : "Tạm hết"}
+            </button>
+          ))}
+        </div>
+        {search && (
+          <div className="text-xs text-ink-500">
+            {filteredItems.length}/{items.length} món
+          </div>
+        )}
+      </div>
+
+      {selectedIds.size > 0 && (
+        <div className="sticky top-2 z-20 mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-brand-200 bg-brand-50 px-4 py-2 shadow-sm">
+          <span className="text-sm font-semibold text-brand-800">
+            Đã chọn {selectedIds.size} món
+          </span>
+          <button
+            onClick={() => bulkSetAvailable(true)}
+            className="rounded-full bg-emerald-600 px-3 py-1 text-xs font-semibold text-white hover:bg-emerald-700"
+          >
+            Bật bán
+          </button>
+          <button
+            onClick={() => bulkSetAvailable(false)}
+            className="rounded-full bg-red-600 px-3 py-1 text-xs font-semibold text-white hover:bg-red-700"
+          >
+            Tắt (hết)
+          </button>
+          <button
+            onClick={() => setSelectedIds(new Set())}
+            className="ml-auto text-xs font-semibold text-ink-600 hover:text-ink-800"
+          >
+            Huỷ chọn
+          </button>
+        </div>
+      )}
+
       {/* Items grouped by cat */}
       <div className="mt-8 space-y-8">
         {cats.map((cat) => {
-          const catItems = items.filter((i) => i.categoryId === cat.id);
+          const catItems = filteredItems.filter((i) => i.categoryId === cat.id);
+          if (catItems.length === 0 && (search || availFilter !== "all")) return null;
           return (
             <div key={cat.id}>
               <h2 className="mb-3 font-display text-xl font-bold text-ink-900">{cat.name}</h2>
@@ -178,11 +293,21 @@ export default function MenuManager() {
                   <div
                     key={it.id}
                     className={`group flex gap-3 rounded-2xl border bg-white p-3 transition hover:shadow-md ${
-                      it.isAvailable
-                        ? "border-ink-100 hover:border-brand-200"
-                        : "border-red-200 bg-red-50/30"
+                      selectedIds.has(it.id)
+                        ? "border-brand-500 ring-2 ring-brand-200"
+                        : it.isAvailable
+                          ? "border-ink-100 hover:border-brand-200"
+                          : "border-red-200 bg-red-50/30"
                     }`}
                   >
+                    <label className="flex items-start pt-1">
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(it.id)}
+                        onChange={() => toggleSelect(it.id)}
+                        className="h-4 w-4"
+                      />
+                    </label>
                     <div className="relative h-20 w-20 flex-none overflow-hidden rounded-xl">
                       <SafeImg
                         src={it.image}
@@ -228,8 +353,10 @@ export default function MenuManager() {
                         </button>
                         <div className="flex gap-1">
                           <button
-                            onClick={() => setEditing(it)}
-                            title="Sửa"
+                            onClick={() =>
+                              router.push(`/admin/${restaurantId}/menu/items/${it.id}`)
+                            }
+                            title="Sửa & cấu hình tuỳ chọn"
                             aria-label="Sửa"
                             className="inline-flex h-7 w-7 items-center justify-center rounded-lg text-ink-500 hover:bg-ink-100 hover:text-ink-900"
                           >
@@ -272,10 +399,16 @@ export default function MenuManager() {
             setShowNew(false);
             setEditing(null);
           }}
-          onSaved={() => {
+          onSaved={(newId) => {
             setShowNew(false);
             setEditing(null);
             load();
+            // Route fresh creations into the full editor so the admin can
+            // immediately configure options / images / station without an
+            // extra click from the list.
+            if (newId) {
+              router.push(`/admin/${restaurantId}/menu/items/${newId}`);
+            }
           }}
         />
       )}
@@ -325,7 +458,8 @@ function ItemDialog({
   categories: Category[];
   stations: Station[];
   onClose: () => void;
-  onSaved: () => void;
+  /** On create, receives the new item id so caller can redirect to its detail page. */
+  onSaved: (newItemId?: string) => void;
 }) {
   const [name, setName] = useState(item?.name || "");
   const [desc, setDesc] = useState(item?.description || "");
@@ -348,14 +482,16 @@ function ItemDialog({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-    } else {
-      await fetch("/api/admin/menu-items", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
+      onSaved();
+      return;
     }
-    onSaved();
+    const r = await fetch("/api/admin/menu-items", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const d = await r.json().catch(() => ({}));
+    onSaved(d.item?.id);
   }
   return (
     <Dialog onClose={onClose} title={item ? "Sửa món" : "Thêm món mới"}>

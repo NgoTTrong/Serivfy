@@ -49,20 +49,51 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
       optionGroups: {
         include: { choices: true },
       },
+      modifiers: {
+        include: {
+          template: { include: { choices: true } },
+        },
+      },
     },
   });
   if (!menuItem || !menuItem.isAvailable || menuItem.deletedAt) {
     return NextResponse.json({ error: "ITEM_UNAVAILABLE" }, { status: 400 });
   }
 
-  // Validate options + compute label/price/key
+  // Validate options + compute label/price/key. Groups come from two sources:
+  //   1. Per-item MenuOptionGroup rows (legacy + still used)
+  //   2. ModifierTemplate rows attached via MenuItemModifier (shared library)
+  // Both validate against the same required/multiple rules.
+  type UnifiedGroup = {
+    name: string;
+    required: boolean;
+    multiple: boolean;
+    choices: Array<{ id: string; label: string; priceDelta: number }>;
+  };
+  const unifiedGroups: UnifiedGroup[] = [
+    ...menuItem.optionGroups.map((g) => ({
+      name: g.name,
+      required: g.required,
+      multiple: g.multiple,
+      choices: g.choices,
+    })),
+    ...menuItem.modifiers
+      .filter((m) => m.template && !m.template.deletedAt)
+      .map((m) => ({
+        name: m.template.name,
+        required: m.template.required,
+        multiple: m.template.multiple,
+        choices: m.template.choices,
+      })),
+  ];
+
   const chosenIds = parsed.data.choiceIds ?? [];
   let optionsPrice = 0;
   const labelParts: string[] = [];
   const sortedChosenForKey: string[] = [];
 
   // Gather choices per group to enforce required / multiple rules
-  for (const group of menuItem.optionGroups) {
+  for (const group of unifiedGroups) {
     const chosenInGroup = group.choices.filter((c) => chosenIds.includes(c.id));
     if (group.required && chosenInGroup.length === 0) {
       return NextResponse.json(

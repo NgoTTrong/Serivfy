@@ -55,6 +55,9 @@ model Restaurant {
   eInvoiceConfig      EInvoiceConfig?
   eInvoices           EInvoice[]
   branches            Branch[]
+  modifierTemplates   ModifierTemplate[]
+  combos              MenuCombo[]
+  receiptTemplate     ReceiptTemplate?
   createdAt           DateTime       @default(now())
 
   @@index([status])
@@ -199,6 +202,10 @@ model OrderItem {
   guest         Guest?      @relation(fields: [guestId], references: [id])
   menuItemId    String
   menuItem      MenuItem    @relation(fields: [menuItemId], references: [id])
+  /// When set, this line represents a combo. menuItemId holds a synthetic
+  /// sentinel row or the combo's "banner" item; the real bundle is resolved
+  /// via the comboId snapshot. Kitchen tickets can expand this.
+  comboId       String?
   quantity      Int
   note          String?
   servedQty     Int         @default(0)
@@ -208,6 +215,7 @@ model OrderItem {
   createdAt     DateTime    @default(now())
 
   @@index([roundId])
+  @@index([comboId])
 }
 
 model CartItem {
@@ -218,6 +226,9 @@ model CartItem {
   guest         Guest        @relation(fields: [guestId], references: [id], onDelete: Cascade)
   menuItemId    String
   menuItem      MenuItem     @relation(fields: [menuItemId], references: [id])
+  /// Populated when this cart line represents a combo. Kitchen/POS fan-out
+  /// happens at order-submit time.
+  comboId       String?
   quantity      Int
   note          String?
   optionsLabel  String?      // Denormalized display e.g. "L, extra trân châu"
@@ -227,6 +238,7 @@ model CartItem {
   updatedAt     DateTime     @updatedAt
 
   @@index([sessionId])
+  @@index([comboId])
 }
 
 model Category {
@@ -261,9 +273,116 @@ model MenuItem {
   orderItems   OrderItem[]
   cartItems    CartItem[]
   optionGroups MenuOptionGroup[]
+  modifiers    MenuItemModifier[]
+  comboItems   MenuComboItem[]
 
   @@index([restaurantId, deletedAt])
   @@index([stationId])
+}
+
+/// Per-restaurant receipt template overrides. 1:1 with Restaurant; default
+/// values apply when the row doesn't exist yet (lazy-created on first
+/// admin save). Keeps the receipt builder lookup O(1) and lets admins
+/// tweak what appears on the slip without a schema change.
+model ReceiptTemplate {
+  restaurantId    String   @id
+  restaurant      Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  /// Override the restaurant name on the header (null = use Restaurant.name).
+  headerName      String?
+  headerTagline   String?
+  logoUrl         String?
+  showAddress     Boolean  @default(true)
+  showPhone       Boolean  @default(true)
+  showTaxCode     Boolean  @default(true)
+  showItemOptions Boolean  @default(true)
+  showVietQr      Boolean  @default(true)
+  /// "Cảm ơn quý khách — hẹn gặp lại" default.
+  footerText      String?
+  /// Optional second line — wifi info, social handle, tip jar, etc.
+  footerSecondary String?
+  /// small | normal | large — scales base font size on the rendered slip.
+  fontScale       String   @default("normal")
+  /// 58 or 80 mm. Drives @page size in browser print + agent paper width.
+  paperWidth      Int      @default(80)
+  updatedAt       DateTime @updatedAt
+}
+
+/// Bundle of menu items sold at a package price. Stored as first-class so
+/// admins can manage combos independently of individual items, and kitchen
+/// tickets can expand the combo into its constituent dishes when printed.
+model MenuCombo {
+  id           String    @id @default(cuid())
+  restaurantId String
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  name         String
+  description  String?
+  /// Bundle price — not the sum of constituents.
+  price        Int
+  image        String?
+  isAvailable  Boolean   @default(true)
+  order        Int       @default(0)
+  deletedAt    DateTime?
+  items        MenuComboItem[]
+  createdAt    DateTime  @default(now())
+
+  @@index([restaurantId, deletedAt])
+}
+
+model MenuComboItem {
+  id         String   @id @default(cuid())
+  comboId    String
+  combo      MenuCombo @relation(fields: [comboId], references: [id], onDelete: Cascade)
+  menuItemId String
+  menuItem   MenuItem @relation(fields: [menuItemId], references: [id])
+  quantity   Int      @default(1)
+  /// Optional note per constituent — "ít đá", "không hành", etc.
+  note       String?
+  order      Int      @default(0)
+
+  @@index([comboId])
+  @@index([menuItemId])
+}
+
+/// Reusable modifier group ("Size", "Độ ngọt", "Topping trà sữa"). Defined
+/// once per tenant, attached to many MenuItems via MenuItemModifier. Editing
+/// the template updates the options everywhere immediately — much cheaper
+/// than cloning the group onto each dish.
+model ModifierTemplate {
+  id           String   @id @default(cuid())
+  restaurantId String
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  name         String
+  required     Boolean  @default(false)
+  multiple     Boolean  @default(false)
+  order        Int      @default(0)
+  deletedAt    DateTime?
+  choices      ModifierTemplateChoice[]
+  appliedTo    MenuItemModifier[]
+  createdAt    DateTime @default(now())
+
+  @@index([restaurantId, deletedAt])
+}
+
+model ModifierTemplateChoice {
+  id         String   @id @default(cuid())
+  templateId String
+  template   ModifierTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  label      String
+  priceDelta Int      @default(0)
+  order      Int      @default(0)
+}
+
+/// Attach a reusable ModifierTemplate to a MenuItem. Order controls display
+/// sequence on the customer side when multiple templates are applied.
+model MenuItemModifier {
+  menuItemId String
+  menuItem   MenuItem @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+  templateId String
+  template   ModifierTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  order      Int      @default(0)
+
+  @@id([menuItemId, templateId])
+  @@index([templateId])
 }
 
 model MenuOptionGroup {

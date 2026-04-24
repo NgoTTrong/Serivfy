@@ -24,6 +24,37 @@ export type ReceiptItem = {
   note: string | null;
 };
 
+export type ReceiptTemplateSettings = {
+  headerName: string | null;
+  headerTagline: string | null;
+  logoUrl: string | null;
+  showAddress: boolean;
+  showPhone: boolean;
+  showTaxCode: boolean;
+  showItemOptions: boolean;
+  showVietQr: boolean;
+  footerText: string | null;
+  footerSecondary: string | null;
+  /// "small" | "normal" | "large"
+  fontScale: string;
+  paperWidth: 58 | 80;
+};
+
+export const DEFAULT_RECEIPT_TEMPLATE: ReceiptTemplateSettings = {
+  headerName: null,
+  headerTagline: null,
+  logoUrl: null,
+  showAddress: true,
+  showPhone: true,
+  showTaxCode: true,
+  showItemOptions: true,
+  showVietQr: true,
+  footerText: "Cảm ơn quý khách — hẹn gặp lại!",
+  footerSecondary: null,
+  fontScale: "normal",
+  paperWidth: 80,
+};
+
 export type ReceiptPayload = {
   type: "RECEIPT";
   version: 1;
@@ -35,6 +66,7 @@ export type ReceiptPayload = {
     phone: string | null;
     taxCode: string | null;
   };
+  template: ReceiptTemplateSettings;
   receiptNumber: string;
   tableLabel: string;
   openedAt: string; // ISO
@@ -78,6 +110,7 @@ export async function buildReceiptPayload(sessionId: string, paperWidth: 58 | 80
           bankName: true,
           bankAccountNumber: true,
           bankAccountHolder: true,
+          receiptTemplate: true,
         },
       },
       table: { select: { label: true } },
@@ -92,6 +125,23 @@ export async function buildReceiptPayload(sessionId: string, paperWidth: 58 | 80
     },
   });
   if (!session) return null;
+  const tpl = session.restaurant.receiptTemplate;
+  // Template row is lazy-created on first admin save; fall back to defaults
+  // so receipts work for every tenant out of the box.
+  const template: ReceiptTemplateSettings = {
+    headerName: tpl?.headerName ?? DEFAULT_RECEIPT_TEMPLATE.headerName,
+    headerTagline: tpl?.headerTagline ?? DEFAULT_RECEIPT_TEMPLATE.headerTagline,
+    logoUrl: tpl?.logoUrl ?? DEFAULT_RECEIPT_TEMPLATE.logoUrl,
+    showAddress: tpl?.showAddress ?? DEFAULT_RECEIPT_TEMPLATE.showAddress,
+    showPhone: tpl?.showPhone ?? DEFAULT_RECEIPT_TEMPLATE.showPhone,
+    showTaxCode: tpl?.showTaxCode ?? DEFAULT_RECEIPT_TEMPLATE.showTaxCode,
+    showItemOptions: tpl?.showItemOptions ?? DEFAULT_RECEIPT_TEMPLATE.showItemOptions,
+    showVietQr: tpl?.showVietQr ?? DEFAULT_RECEIPT_TEMPLATE.showVietQr,
+    footerText: tpl?.footerText ?? DEFAULT_RECEIPT_TEMPLATE.footerText,
+    footerSecondary: tpl?.footerSecondary ?? DEFAULT_RECEIPT_TEMPLATE.footerSecondary,
+    fontScale: tpl?.fontScale ?? DEFAULT_RECEIPT_TEMPLATE.fontScale,
+    paperWidth: ((tpl?.paperWidth ?? paperWidth) === 58 ? 58 : 80) as 58 | 80,
+  };
 
   const items: ReceiptPayload["items"] = [];
   let subtotal = 0;
@@ -111,12 +161,14 @@ export async function buildReceiptPayload(sessionId: string, paperWidth: 58 | 80
   }
 
   const paidAmount = session.paidAmount ?? null;
-  const total = subtotal; // discount engine plugs in here later
+  const total = Math.max(0, subtotal - session.discountAmount);
   const changeAmount =
     session.paymentMethod === "CASH" && paidAmount != null ? Math.max(0, paidAmount - total) : null;
 
   // VietQR only makes sense for bank transfers when both bank + account are set.
+  // Template can suppress it entirely (showVietQr=false) for cash-only shops.
   const wantQr =
+    template.showVietQr &&
     session.paymentMethod !== "CASH" &&
     session.restaurant.bankName &&
     session.restaurant.bankAccountNumber;
@@ -132,27 +184,28 @@ export async function buildReceiptPayload(sessionId: string, paperWidth: 58 | 80
   return {
     type: "RECEIPT",
     version: 1,
-    paperWidth,
+    paperWidth: template.paperWidth,
     restaurant: {
-      name: session.restaurant.name,
-      logo: session.restaurant.logo,
-      address: session.restaurant.address,
-      phone: session.restaurant.phone,
-      taxCode: session.restaurant.taxCode,
+      name: template.headerName ?? session.restaurant.name,
+      logo: template.logoUrl ?? session.restaurant.logo,
+      address: template.showAddress ? session.restaurant.address : null,
+      phone: template.showPhone ? session.restaurant.phone : null,
+      taxCode: template.showTaxCode ? session.restaurant.taxCode : null,
     },
+    template,
     receiptNumber: session.receiptNumber ?? session.id.slice(-8).toUpperCase(),
     tableLabel: session.table.label,
     openedAt: session.openedAt.toISOString(),
     closedAt: (session.closedAt ?? new Date()).toISOString(),
     items,
     subtotal,
-    discount: 0,
-    total,
+    discount: session.discountAmount,
+    total: Math.max(0, subtotal - session.discountAmount),
     paymentMethod: (session.paymentMethod as ReceiptPayload["paymentMethod"]) ?? null,
     paidAmount,
     changeAmount,
     vietQr,
-    footer: "Cảm ơn quý khách — hẹn gặp lại!",
+    footer: template.footerText ?? "Cảm ơn quý khách — hẹn gặp lại!",
   };
 }
 

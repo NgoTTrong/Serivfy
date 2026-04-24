@@ -38,6 +38,7 @@ export default function AdminShell({
     { href: `${base}/branches`, label: "Chi nhánh", icon: "🏢" },
     { href: `${base}/shifts`, label: "Quản lý ca", icon: "🕛" },
     { href: `${base}/printers`, label: "Máy in", icon: "🖨️" },
+    { href: `${base}/receipt`, label: "Mẫu hoá đơn", icon: "🧾" },
     { href: `${base}/staff`, label: "Nhân viên", icon: "👥" },
     { href: `${base}/audit`, label: "Nhật ký", icon: "📜" },
     { href: `${base}/einvoices`, label: "HĐ điện tử", icon: "📄" },

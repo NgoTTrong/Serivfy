@@ -54,6 +54,14 @@ export default function ReceiptPrint({
 
   const bodyWidthMm = payload.paperWidth === 58 ? 52 : 72;
   const pageWidthMm = payload.paperWidth;
+  // Map scale → base font size. Thermal printers pixelate at low sizes;
+  // keep "small" above 9pt so characters stay legible at ~180 DPI.
+  const baseFontPt =
+    payload.template.fontScale === "small"
+      ? 10
+      : payload.template.fontScale === "large"
+        ? 13
+        : 11;
 
   const openedAt = new Date(payload.openedAt);
   const closedAt = new Date(payload.closedAt);
@@ -77,7 +85,7 @@ export default function ReceiptPrint({
           padding: 4mm;
           background: white;
           font-family: "Consolas", "Menlo", monospace;
-          font-size: 11pt;
+          font-size: ${baseFontPt}pt;
           line-height: 1.35;
           color: #000;
         }
@@ -160,7 +168,20 @@ export default function ReceiptPrint({
       </div>
 
       <div className="receipt">
+        {payload.template.logoUrl && (
+          <div className="center" style={{ marginBottom: "2mm" }}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={payload.template.logoUrl}
+              alt=""
+              style={{ maxWidth: "30mm", maxHeight: "20mm" }}
+            />
+          </div>
+        )}
         <div className="center big">{payload.restaurant.name}</div>
+        {payload.template.headerTagline && (
+          <div className="center small">{payload.template.headerTagline}</div>
+        )}
         {payload.restaurant.address && (
           <div className="center small">{payload.restaurant.address}</div>
         )}
@@ -204,8 +225,12 @@ export default function ReceiptPrint({
               </span>
               <span>{formatVND(it.subtotal)}</span>
             </div>
-            {it.optionsLabel && <div className="opt">+ {it.optionsLabel}</div>}
-            {it.note && <div className="opt">※ {it.note}</div>}
+            {payload.template.showItemOptions && it.optionsLabel && (
+              <div className="opt">+ {it.optionsLabel}</div>
+            )}
+            {payload.template.showItemOptions && it.note && (
+              <div className="opt">※ {it.note}</div>
+            )}
           </div>
         ))}
         <hr />
@@ -264,6 +289,11 @@ export default function ReceiptPrint({
 
         <hr />
         <div className="center small">{payload.footer}</div>
+        {payload.template.footerSecondary && (
+          <div className="center small" style={{ marginTop: "1mm" }}>
+            {payload.template.footerSecondary}
+          </div>
+        )}
       </div>
     </>
   );

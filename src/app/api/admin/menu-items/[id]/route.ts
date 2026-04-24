@@ -16,6 +16,30 @@ const schema = z.object({
   stationId: z.string().nullable().optional(),
 });
 
+export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
+  let staff;
+  try {
+    staff = await requireRole(["ADMIN"]);
+  } catch {
+    return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
+  }
+  const item = await prisma.menuItem.findUnique({
+    where: { id: params.id },
+    include: {
+      category: true,
+      station: { select: { id: true, name: true } },
+      optionGroups: {
+        orderBy: { order: "asc" },
+        include: { choices: { orderBy: { order: "asc" } } },
+      },
+    },
+  });
+  if (!item || item.restaurantId !== staff.restaurantId || item.deletedAt) {
+    return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
+  }
+  return NextResponse.json({ item });
+}
+
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   let staff;
   try {
