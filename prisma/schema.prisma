@@ -30,6 +30,14 @@ model Restaurant {
   suspendedAt         DateTime?
   suspendReason       String?
 
+  // Ops
+  timezone            String         @default("Asia/Ho_Chi_Minh")
+  // Bumped on suspend/downgrade to revoke all existing staff JWTs for this tenant.
+  tokenVersion        Int            @default(0)
+  /// Shared secret that must match the `Secure-Token` header on incoming
+  /// Casso webhook POSTs. Null = Casso integration disabled for this tenant.
+  cassoWebhookSecret  String?
+
   tables              Table[]
   menuItems           MenuItem[]
   categories          Category[]
@@ -37,9 +45,42 @@ model Restaurant {
   sessions            TableSession[]
   signupRequest       SignupRequest?
   customerDevices     CustomerDevice[]
+  stations            Station[]
+  printers            Printer[]
+  printAgents         PrintAgent[]
+  shifts              Shift[]
+  vouchers            Voucher[]
+  bankTransactions    BankTransaction[]
+  tenantAuditLog      TenantAuditLog[]
+  eInvoiceConfig      EInvoiceConfig?
+  eInvoices           EInvoice[]
+  branches            Branch[]
   createdAt           DateTime       @default(now())
 
   @@index([status])
+}
+
+/// A physical location of a chain — single-branch installs still have a
+/// default branch auto-created on migration, so every Table/Staff/Session
+/// row always has a branchId. HQ staff (branchId=null) see aggregated
+/// reports; per-branch staff (branchId set) are scoped automatically.
+model Branch {
+  id           String     @id @default(cuid())
+  restaurantId String
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  name         String
+  address      String?
+  phone        String?
+  /// Per-branch timezone override (null → inherit from Restaurant).
+  timezone     String?
+  /// Soft-disable a closed branch without deleting history.
+  isActive     Boolean    @default(true)
+  createdAt    DateTime   @default(now())
+  staff        Staff[]
+  tables       Table[]
+  sessions     TableSession[]
+
+  @@index([restaurantId, isActive])
 }
 
 /// Customer recognition ("Servify Memory") — scoped per restaurant.
@@ -69,6 +110,10 @@ model Table {
   id           String         @id @default(cuid())
   restaurantId String
   restaurant   Restaurant     @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  /// Null only in single-branch tenants created before multi-branch rollout.
+  /// Migration backfills a default branch, so new rows always have it.
+  branchId     String?
+  branch       Branch?        @relation(fields: [branchId], references: [id], onDelete: SetNull)
   number       Int
   label        String
   capacity     Int            @default(4)
@@ -77,6 +122,7 @@ model Table {
   sessions     TableSession[]
 
   @@unique([restaurantId, number])
+  @@index([branchId])
 }
 
 model TableSession {
@@ -85,6 +131,10 @@ model TableSession {
   table             Table         @relation(fields: [tableId], references: [id], onDelete: Cascade)
   restaurantId      String
   restaurant        Restaurant    @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  /// Denormalized from Table.branchId at session creation so branch-scoped
+  /// reports don't need a join to Table.
+  branchId          String?
+  branch            Branch?       @relation(fields: [branchId], references: [id], onDelete: SetNull)
   token             String        @unique @default(cuid())
   status            String        @default("ACTIVE") // ACTIVE | CLOSED
   openedAt          DateTime      @default(now())
@@ -95,12 +145,20 @@ model TableSession {
   paidAt            DateTime?
   cashierStaffId    String?       // who closed the bill
   receiptNumber     String?       // human-friendly receipt no.
+  /// Denormalized from VoucherRedemption for fast reads on analytics /
+  /// dashboards / receipts. Source of truth is the redemption row.
+  discountAmount    Int           @default(0)
+  voucherCode       String?
+  voucherLabel      String?
   guests            Guest[]
   rounds            OrderRound[]
   cartItems         CartItem[]
+  voucherRedemption VoucherRedemption?
+  eInvoice          EInvoice?
 
   @@index([tableId, status])
   @@index([restaurantId, paidAt])
+  @@unique([restaurantId, receiptNumber])
 }
 
 model Guest {
@@ -113,6 +171,9 @@ model Guest {
   orderItems OrderItem[]
   cartItems  CartItem[]
 
+  // One Guest per (session, deviceId): prevents duplicate rows when the same
+  // phone (or POS staff) re-registers on a session under concurrent requests.
+  @@unique([sessionId, deviceId])
   @@index([sessionId])
 }
 
@@ -125,6 +186,7 @@ model OrderRound {
   items       OrderItem[]
   createdAt   DateTime    @default(now())
 
+  @@unique([sessionId, roundNumber])
   @@index([sessionId])
   @@index([status])
 }
@@ -173,7 +235,10 @@ model Category {
   restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
   name         String
   order        Int        @default(0)
+  deletedAt    DateTime?
   menuItems    MenuItem[]
+
+  @@index([restaurantId, deletedAt])
 }
 
 model MenuItem {
@@ -188,9 +253,17 @@ model MenuItem {
   image        String?
   isAvailable  Boolean            @default(true)
   order        Int                @default(0)
+  deletedAt    DateTime?
+  // Which station (bếp nóng / bếp lạnh / bar) this item prints to.
+  // Null = no kitchen ticket printed for this item (e.g. drinks self-serve).
+  stationId    String?
+  station      Station?           @relation(fields: [stationId], references: [id], onDelete: SetNull)
   orderItems   OrderItem[]
   cartItems    CartItem[]
   optionGroups MenuOptionGroup[]
+
+  @@index([restaurantId, deletedAt])
+  @@index([stationId])
 }
 
 model MenuOptionGroup {
@@ -219,11 +292,214 @@ model Staff {
   id           String     @id @default(cuid())
   restaurantId String
   restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  /// Null for HQ-scoped roles (sees all branches). Non-null = scoped.
+  branchId     String?
+  branch       Branch?    @relation(fields: [branchId], references: [id], onDelete: SetNull)
   name         String
   email        String     @unique
   role         String     // ADMIN | WAITER | KITCHEN
   passwordHash String
+  isActive     Boolean    @default(true)
+  // Bumped on role change / password reset to revoke existing JWTs for this staff.
+  tokenVersion Int        @default(0)
   createdAt    DateTime   @default(now())
+
+  openedShifts Shift[]    @relation("ShiftOpenedBy")
+  closedShifts Shift[]    @relation("ShiftClosedBy")
+
+  @@index([restaurantId, branchId])
+}
+
+/// Per-tenant e-invoice provider configuration. One row per tenant. Sensitive
+/// fields (api password, cert path) should be encrypted at rest in production;
+/// a dedicated key management layer plugs in here without changing callers.
+model EInvoiceConfig {
+  restaurantId  String   @id
+  restaurant    Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  /// STUB | VIETTEL | VNPT | MISA | EASYINVOICE | HILO
+  provider      String   @default("STUB")
+  apiEndpoint   String?
+  apiUsername   String?
+  apiPassword   String?
+  taxCode       String?
+  templateCode  String?
+  seriesCode    String?
+  /// When true, the close-bill flow auto-enqueues invoice issuance.
+  isEnabled     Boolean  @default(false)
+  updatedAt     DateTime @updatedAt
+}
+
+/// Single issued (or pending) e-invoice for a closed session. One invoice
+/// per session (sessionId unique) — reissue cancels + creates new.
+model EInvoice {
+  id                String   @id @default(cuid())
+  restaurantId      String
+  restaurant        Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  sessionId         String   @unique
+  session           TableSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  provider          String
+  /// PENDING | SUBMITTED | ISSUED | REJECTED | FAILED | CANCELLED
+  status            String   @default("PENDING")
+  providerInvoiceId String?
+  invoiceNumber     String?
+  invoiceSeries     String?
+  pdfUrl            String?
+  xmlUrl            String?
+  issuedAt          DateTime?
+  attempts          Int      @default(0)
+  lastError         String?
+  rawResponse       String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([restaurantId, status, createdAt])
+}
+
+/// Append-only audit trail of tenant-initiated changes (menu, staff,
+/// vouchers, shifts, settings). Different from the platform AuditLog which
+/// tracks Servify team actions across all tenants.
+model TenantAuditLog {
+  id           String   @id @default(cuid())
+  restaurantId String
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  actorStaffId String?
+  actorName    String?
+  /// Dotted action label: `menu.item.created`, `staff.deactivated`,
+  /// `voucher.updated`, `shift.opened`, `settings.bank.updated`, etc.
+  action       String
+  /// Opaque target id (menu item id, staff id, voucher id, ...).
+  target       String?
+  /// Optional JSON payload: { before, after } for diffs or arbitrary context.
+  meta         String?
+  createdAt    DateTime @default(now())
+
+  @@index([restaurantId, createdAt])
+  @@index([restaurantId, action])
+}
+
+/// Bank transaction ingested via a payment reconciliation provider (Casso
+/// initially). Stored whether or not we manage to match it to a session so
+/// admins can manually reconcile the leftover.
+model BankTransaction {
+  id               String   @id @default(cuid())
+  restaurantId     String
+  restaurant       Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  provider         String   // CASSO
+  providerTxId     String
+  amount           Int
+  description      String
+  bankAbbr         String?
+  counterparty     String?
+  receivedAt       DateTime
+  rawPayload       String
+  matchedSessionId String?
+  /// MATCHED | UNMATCHED | AMBIGUOUS | MANUAL_MATCHED
+  matchStatus      String   @default("UNMATCHED")
+  createdAt        DateTime @default(now())
+
+  @@unique([provider, providerTxId])
+  @@index([restaurantId, receivedAt])
+  @@index([restaurantId, matchStatus])
+}
+
+/// Promotional voucher. Attached to at most one TableSession via
+/// VoucherRedemption; discount is snapshotted to the session row so
+/// historical bills don't shift value when the voucher config changes.
+model Voucher {
+  id                String   @id @default(cuid())
+  restaurantId      String
+  restaurant        Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  code              String   // case-insensitive matching done at query time
+  label             String
+  /// PERCENT_OFF (value = 1..100), FIXED_OFF (value = VND)
+  kind              String
+  value             Int
+  minOrderVND       Int?
+  /// Cap for PERCENT_OFF discounts so "% đơn lớn" don't give away free meals.
+  maxDiscountVND    Int?
+  startAt           DateTime?
+  endAt             DateTime?
+  /// Total cross-customer redemptions allowed.
+  totalLimit        Int?
+  usageCount        Int      @default(0)
+  isActive          Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  redemptions       VoucherRedemption[]
+
+  @@unique([restaurantId, code])
+  @@index([restaurantId, isActive])
+}
+
+/// Point-in-time record that a Voucher was applied to a session. Immutable
+/// except for removal when the voucher is unapplied before the bill closes.
+model VoucherRedemption {
+  id           String      @id @default(cuid())
+  voucherId    String
+  voucher      Voucher     @relation(fields: [voucherId], references: [id], onDelete: Restrict)
+  restaurantId String
+  sessionId    String      @unique
+  session      TableSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  /// Snapshotted so voucher edits after redemption don't rewrite history.
+  voucherCode  String
+  voucherLabel String
+  discountAmt  Int
+  appliedAt    DateTime    @default(now())
+  /// Populated when the session closes — we lock in whether the redemption
+  /// counts against the voucher's totalLimit at close rather than apply.
+  committedAt  DateTime?
+
+  @@index([voucherId])
+}
+
+/// Cashier shift. Shift is optional — restaurants that don't track shifts
+/// simply never open one. When an OPEN shift exists at the moment a bill
+/// closes, the payment is attached as a ShiftMovement so end-of-shift
+/// reports can reconcile the cash drawer.
+model Shift {
+  id                   String   @id @default(cuid())
+  restaurantId         String
+  restaurant           Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  branchId             String?
+  openedByStaffId      String
+  openedBy             Staff    @relation("ShiftOpenedBy", fields: [openedByStaffId], references: [id])
+  openedAt             DateTime @default(now())
+  /// Counted cash in drawer when the shift opened.
+  openingCash          Int      @default(0)
+  note                 String?
+  status               String   @default("OPEN") // OPEN | CLOSED
+  closedByStaffId      String?
+  closedBy             Staff?   @relation("ShiftClosedBy", fields: [closedByStaffId], references: [id])
+  closedAt             DateTime?
+  /// Counted cash when the shift closed — compared against the computed
+  /// expected cash (opening + cash in - cash out + cash payments).
+  closingCashActual    Int?
+  closingCashExpected  Int?
+  closingNote          String?
+  movements            ShiftMovement[]
+
+  @@index([restaurantId, status])
+  @@index([restaurantId, openedAt])
+}
+
+/// Append-only ledger of money flowing in / out of the drawer during a shift.
+model ShiftMovement {
+  id            String   @id @default(cuid())
+  shiftId       String
+  shift         Shift    @relation(fields: [shiftId], references: [id], onDelete: Cascade)
+  /// SESSION_CLOSED = customer paid the bill (amount +)
+  /// CASH_IN        = operator put cash in (float top-up, bank withdraw into till)
+  /// CASH_OUT       = operator took cash out (expense, bank deposit)
+  /// REFUND         = money given back to customer
+  kind          String
+  /// Always stored as a positive value; direction determined by `kind`.
+  amount        Int
+  paymentMethod String?  // CASH | BANK_TRANSFER | CARD (SESSION_CLOSED only)
+  sessionId     String?
+  note          String?
+  createdByStaffId String?
+  createdAt     DateTime @default(now())
+
+  @@index([shiftId, createdAt])
 }
 
 /// Platform-level admin (Servify team). Separate from per-tenant Staff.
@@ -264,6 +540,142 @@ model PlatformSettings {
   id           String  @id @default("SINGLETON")
   autoApprove  Boolean @default(false)
   updatedAt    DateTime @updatedAt
+}
+
+/// Kitchen / bar station. Menu items belong to a station so new rounds can be
+/// split into per-station kitchen tickets. A station has an optional primary
+/// printer; if null, tickets for this station are queued but not dispatched
+/// until a printer is assigned.
+model Station {
+  id            String     @id @default(cuid())
+  restaurantId  String
+  restaurant    Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  branchId      String?    // reserved for multi-branch rollout
+  name          String     // "Bếp nóng", "Bar", "Bếp lạnh"
+  order         Int        @default(0)
+  printerId     String?
+  printer       Printer?   @relation(fields: [printerId], references: [id], onDelete: SetNull)
+  menuItems     MenuItem[]
+  createdAt     DateTime   @default(now())
+
+  @@index([restaurantId])
+}
+
+/// Paired Windows tray app that bridges this tenant's cloud print queue to
+/// physical printers on the restaurant LAN. One machine = one PrintAgent.
+/// Multiple agents per tenant are supported (e.g. main counter + backup).
+model PrintAgent {
+  id           String     @id @default(cuid())
+  restaurantId String
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  branchId     String?
+  name         String     // "Máy quầy 1"
+  // Bearer token hashed (bcrypt) — raw value only returned once at claim time.
+  tokenHash    String     @unique
+  version      String?    // agent app version, for upgrade nudges
+  lastSeenAt   DateTime?
+  createdAt    DateTime   @default(now())
+  revokedAt    DateTime?
+  printers     Printer[]
+
+  @@index([restaurantId])
+}
+
+/// Short-lived pairing code generated by admin UI so a fresh Agent install
+/// can bootstrap without embedding credentials in the installer. Code is
+/// 6-digit human-typable, expires in 10 minutes, consumed on first claim.
+model PrintPairing {
+  id           String   @id @default(cuid())
+  restaurantId String
+  branchId     String?
+  agentName    String
+  // 6-digit code, unique within unexpired window.
+  code         String   @unique
+  expiresAt    DateTime
+  consumedAt   DateTime?
+  createdAt    DateTime @default(now())
+
+  @@index([restaurantId, expiresAt])
+}
+
+/// Physical or network printer managed by a PrintAgent.
+model Printer {
+  id            String     @id @default(cuid())
+  restaurantId  String
+  restaurant    Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  branchId      String?
+  agentId       String
+  agent         PrintAgent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  name          String     // "Thu ngân", "Bếp nóng"
+  kind          String     // RECEIPT | KITCHEN | BAR | LABEL
+  // Connection config — agent picks the right driver based on which fields
+  // are set. Only one of (usb / network / bluetooth) should be non-null.
+  usbVendorId   Int?
+  usbProductId  Int?
+  networkHost   String?
+  networkPort   Int?       @default(9100)
+  bluetoothAddr String?
+  paperWidth    Int        @default(80) // mm — 58 or 80
+  isActive      Boolean    @default(true)
+  lastSeenAt    DateTime?
+  createdAt     DateTime   @default(now())
+  jobs          PrintJob[]
+  stations      Station[]
+
+  @@index([restaurantId, kind])
+  @@index([agentId])
+}
+
+/// A single print request. Jobs live on the server until the owning agent
+/// dispatches them; failed jobs retain `lastError` so admins can diagnose.
+model PrintJob {
+  id            String   @id @default(cuid())
+  restaurantId  String
+  branchId      String?
+  printerId     String
+  printer       Printer  @relation(fields: [printerId], references: [id], onDelete: Cascade)
+  kind          String   // RECEIPT | KITCHEN_TICKET | REPRINT_RECEIPT | TEST
+  // Base64-encoded ESC/POS bytes rendered server-side. Agents are dumb pipes.
+  payload       String
+  // Correlation: which session / round the job was generated from.
+  sessionId     String?
+  roundId       String?
+  status        String   @default("QUEUED") // QUEUED | DISPATCHED | DONE | FAILED
+  attempts      Int      @default(0)
+  lastError     String?
+  createdAt     DateTime @default(now())
+  dispatchedAt  DateTime?
+  processedAt   DateTime?
+
+  @@index([printerId, status, createdAt])
+  @@index([restaurantId, createdAt])
+}
+
+/// Lightweight per-restaurant "version" counters so client polling loops can
+/// ask "has anything changed?" via a 1-row read + ETag before doing a full
+/// fetch. Keeps realtime-ish UX without WebSockets or an external pub/sub.
+///
+/// Scopes are split so e.g. a menu edit doesn't force kitchen screens to
+/// re-fetch their heavy round data.
+model RestaurantPulse {
+  restaurantId    String   @id
+  kitchenVersion  Int      @default(0) // new rounds, serve progress
+  tablesVersion   Int      @default(0) // session open/close, bill request, rounds
+  menuVersion     Int      @default(0) // category / menu item / option changes
+  customerVersion Int      @default(0) // order round, serve, bill state per tenant
+  updatedAt       DateTime @updatedAt
+}
+
+/// Durable rate-limit buckets shared across Fluid Compute instances.
+/// Keyed by `bucket:identifier` (e.g. "signup:1.2.3.4"). Rows are refreshed
+/// via UPSERT; a stale row past `resetAt` resets the count to the new window.
+model RateLimit {
+  key       String   @id
+  count     Int      @default(0)
+  resetAt   DateTime
+  updatedAt DateTime @updatedAt
+
+  @@index([resetAt])
 }
 
 /// Append-only log of platform admin actions.

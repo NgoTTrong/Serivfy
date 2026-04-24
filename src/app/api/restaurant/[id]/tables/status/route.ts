@@ -2,19 +2,25 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/auth";
 import { computeBadge, type MemoryBadge } from "@/lib/memory";
+import { branchWhere } from "@/lib/branch-scope";
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
+  let staffSession;
   try {
-    const staff = await requireRole(["ADMIN", "WAITER"]);
-    if (staff.restaurantId !== params.id) {
-      return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
-    }
+    staffSession = await requireRole(["ADMIN", "WAITER"]);
   } catch {
     return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
   }
+  if (staffSession.restaurantId !== params.id) {
+    return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
+  }
 
   const tables = await prisma.table.findMany({
-    where: { restaurantId: params.id, isActive: true },
+    where: {
+      restaurantId: params.id,
+      isActive: true,
+      ...branchWhere(staffSession),
+    },
     orderBy: { number: "asc" },
     include: {
       sessions: {

@@ -9,10 +9,11 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
   if (!session) return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
 
   const categories = await prisma.category.findMany({
-    where: { restaurantId: session.restaurantId },
+    where: { restaurantId: session.restaurantId, deletedAt: null },
     orderBy: { order: "asc" },
     include: {
       menuItems: {
+        where: { deletedAt: null },
         orderBy: [{ order: "asc" }, { name: "asc" }],
         include: {
           optionGroups: {

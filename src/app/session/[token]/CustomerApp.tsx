@@ -9,6 +9,7 @@ import { useDialog } from "@/components/DialogProvider";
 import { OptionModal } from "@/components/customer/OptionModal";
 import { MemoryWelcome, type MemoryProfile } from "@/components/customer/MemoryWelcome";
 import { Spinner } from "@/components/Spinner";
+import { useRealtime } from "@/lib/use-realtime";
 
 type Restaurant = { id: string; name: string; tagline: string | null; logo: string | null };
 type Table = { id: string; label: string; number: number };
@@ -74,6 +75,16 @@ export default function CustomerApp({
   const [view, setView] = useState<"menu" | "status">("menu");
   const [toast, setToast] = useState<string | null>(null);
 
+  // Single SSE subscription drives cart/status refreshes. If the customer's
+  // network blocks SSE (some hotel wifi / carrier proxies) we fall back to
+  // pulse polling at 3s.
+  const pulseVersion = useRealtime({
+    restaurantId: restaurant.id,
+    scope: "customer",
+    sessionToken,
+    fallbackIntervalMs: 3000,
+  });
+
   // Register guest on mount. Don't auto-popup nickname dialog — user can tap header to set name.
   useEffect(() => {
     const device = getDeviceId();
@@ -116,7 +127,7 @@ export default function CustomerApp({
       });
   }, [sessionToken]);
 
-  // Poll cart for realtime sync
+  // Refresh cart when the server signals a change via the customer pulse.
   useEffect(() => {
     let alive = true;
     async function load() {
@@ -128,12 +139,10 @@ export default function CustomerApp({
       }
     }
     load();
-    const iv = setInterval(load, 3000);
     return () => {
       alive = false;
-      clearInterval(iv);
     };
-  }, [sessionToken]);
+  }, [sessionToken, pulseVersion]);
 
   // Toast
   function flash(msg: string) {
@@ -389,7 +398,11 @@ export default function CustomerApp({
           <MenuList categories={categories} onAdd={addToCart} />
         </>
       ) : (
-        <OrderStatus sessionToken={sessionToken} onBackToMenu={() => setView("menu")} />
+        <OrderStatus
+          sessionToken={sessionToken}
+          onBackToMenu={() => setView("menu")}
+          pulseVersion={pulseVersion}
+        />
       )}
 
       {/* Cart sticky bar */}
@@ -782,9 +795,11 @@ function CartRow({
 function OrderStatus({
   sessionToken,
   onBackToMenu,
+  pulseVersion,
 }: {
   sessionToken: string;
   onBackToMenu: () => void;
+  pulseVersion: number;
 }) {
   const dialog = useDialog();
   type Round = {
@@ -828,12 +843,10 @@ function OrderStatus({
       }
     }
     load();
-    const iv = setInterval(load, 4000);
     return () => {
       alive = false;
-      clearInterval(iv);
     };
-  }, [sessionToken]);
+  }, [sessionToken, pulseVersion]);
 
   async function callBill() {
     if (billBusy) return;

@@ -15,6 +15,7 @@ type Restaurant = {
   bankName: string | null;
   bankAccountNumber: string | null;
   bankAccountHolder: string | null;
+  timezone: string | null;
 };
 
 const BANK_OPTIONS = [
@@ -68,6 +69,7 @@ export default function SettingsForm() {
         bankName: r.bankName,
         bankAccountNumber: r.bankAccountNumber,
         bankAccountHolder: r.bankAccountHolder,
+        timezone: r.timezone || "Asia/Ho_Chi_Minh",
       }),
     });
     setBusy(false);

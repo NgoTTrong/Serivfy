@@ -84,7 +84,7 @@ export async function GET(req: NextRequest) {
 
   const favItems = allFavIds.size
     ? await prisma.menuItem.findMany({
-        where: { id: { in: Array.from(allFavIds) } },
+        where: { id: { in: Array.from(allFavIds) }, deletedAt: null },
         select: { id: true, name: true },
       })
     : [];

@@ -78,7 +78,8 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
   }
 
   const subtotal = lines.reduce((s, l) => s + l.subtotal, 0);
-  const total = subtotal; // VAT / discount hooks here later
+  const discount = session.discountAmount ?? 0;
+  const total = Math.max(0, subtotal - discount);
 
   return NextResponse.json({
     session: {
@@ -92,6 +93,9 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
       paidAmount: session.paidAmount,
       paidAt: session.paidAt,
       receiptNumber: session.receiptNumber,
+      discountAmount: discount,
+      voucherCode: session.voucherCode,
+      voucherLabel: session.voucherLabel,
     },
     restaurant: session.restaurant,
     table: session.table,
@@ -113,6 +117,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
       })),
     ),
     subtotal,
+    discount,
     total,
   });
 }

@@ -18,30 +18,25 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
     return NextResponse.json({ error: "SESSION_CLOSED" }, { status: 410 });
   }
 
-  const existing = await prisma.guest.findFirst({
-    where: { sessionId: session.id, deviceId: parsed.data.deviceId },
-  });
-
-  let guest;
-  if (existing) {
-    if (parsed.data.nickname && parsed.data.nickname !== existing.nickname) {
-      guest = await prisma.guest.update({
-        where: { id: existing.id },
-        data: { nickname: parsed.data.nickname },
-      });
-    } else {
-      guest = existing;
-    }
-  } else {
-    const count = await prisma.guest.count({ where: { sessionId: session.id } });
-    guest = await prisma.guest.create({
-      data: {
+  // Upsert keyed by the (sessionId, deviceId) unique index prevents the race
+  // where two concurrent registers from the same phone (double-tap) create
+  // two Guest rows and split order attribution.
+  const count = await prisma.guest.count({ where: { sessionId: session.id } });
+  const fallbackName = parsed.data.nickname || `Khách ${count + 1}`;
+  const guest = await prisma.guest.upsert({
+    where: {
+      sessionId_deviceId: {
         sessionId: session.id,
         deviceId: parsed.data.deviceId,
-        nickname: parsed.data.nickname || `Khách ${count + 1}`,
       },
-    });
-  }
+    },
+    update: parsed.data.nickname ? { nickname: parsed.data.nickname } : {},
+    create: {
+      sessionId: session.id,
+      deviceId: parsed.data.deviceId,
+      nickname: fallbackName,
+    },
+  });
 
   // Record Memory visit (failure here must never break guest register)
   try {

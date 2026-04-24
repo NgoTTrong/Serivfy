@@ -13,7 +13,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
   if (!restaurant) return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
 
   const admin = await prisma.staff.findFirst({
-    where: { restaurantId: restaurant.id, role: "ADMIN" },
+    where: { restaurantId: restaurant.id, role: "ADMIN", isActive: true },
     orderBy: { createdAt: "asc" },
   });
   if (!admin) {
@@ -25,6 +25,9 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
     restaurantId: admin.restaurantId,
     role: admin.role as "ADMIN" | "WAITER" | "KITCHEN",
     name: admin.name,
+    branchId: admin.branchId ?? null,
+    sv: admin.tokenVersion,
+    rv: restaurant.tokenVersion,
   });
 
   const res = NextResponse.json({

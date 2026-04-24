@@ -6,28 +6,12 @@ const SECRET = new TextEncoder().encode(
   (process.env.AUTH_SECRET || "dev-secret-change-me") + ":platform",
 );
 
-// Simple in-memory rate limiter per IP. Not durable across restarts or
-// multi-instance deploys — use Upstash/Redis for prod if needed.
-const BUCKET = new Map<string, { count: number; resetAt: number }>();
-const SIGNUP_LIMIT = 5; // requests
-const SIGNUP_WINDOW_MS = 60_000; // per minute
-
-function checkRate(key: string) {
-  const now = Date.now();
-  const entry = BUCKET.get(key);
-  if (!entry || entry.resetAt < now) {
-    BUCKET.set(key, { count: 1, resetAt: now + SIGNUP_WINDOW_MS });
-    return true;
-  }
-  if (entry.count >= SIGNUP_LIMIT) return false;
-  entry.count += 1;
-  return true;
-}
-
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
-  // Superadmin route guard (except login)
+  // Superadmin route guard (except login). Middleware runs on Edge, so we can
+  // only do stateless JWT verification here — any DB-backed checks live in
+  // the individual route handlers (Node runtime).
   if (pathname.startsWith("/superadmin") && pathname !== "/superadmin/login") {
     const token = req.cookies.get(PLATFORM_COOKIE)?.value;
     let ok = false;
@@ -66,26 +50,9 @@ export async function middleware(req: NextRequest) {
     }
   }
 
-  // Signup rate-limit (by IP). Prevents spam from single origin.
-  if (pathname === "/api/signup" && req.method === "POST") {
-    const ip =
-      req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-      req.headers.get("x-real-ip") ||
-      "unknown";
-    if (!checkRate(`signup:${ip}`)) {
-      return NextResponse.json(
-        {
-          error: "RATE_LIMITED",
-          message: "Bạn đã gửi quá nhiều yêu cầu. Thử lại sau 1 phút.",
-        },
-        { status: 429 },
-      );
-    }
-  }
-
   return NextResponse.next();
 }
 
 export const config = {
-  matcher: ["/superadmin/:path*", "/api/platform/:path*", "/api/signup"],
+  matcher: ["/superadmin/:path*", "/api/platform/:path*"],
 };

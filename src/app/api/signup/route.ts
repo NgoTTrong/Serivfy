@@ -4,6 +4,7 @@ import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { ensureUniqueSlug, approveSignupRequest } from "@/lib/restaurant-approval";
 import { audit } from "@/lib/platform-auth";
+import { rateLimit, clientIp } from "@/lib/rate-limit";
 
 const schema = z.object({
   restaurantName: z.string().min(2).max(80),
@@ -17,6 +18,28 @@ const schema = z.object({
 });
 
 export async function POST(req: NextRequest) {
+  const limit = await rateLimit({
+    key: `signup:${clientIp(req)}`,
+    limit: 5,
+    windowMs: 60_000,
+  });
+  if (!limit.allowed) {
+    return NextResponse.json(
+      {
+        error: "RATE_LIMITED",
+        message: "Bạn đã gửi quá nhiều yêu cầu. Thử lại sau 1 phút.",
+      },
+      {
+        status: 429,
+        headers: {
+          "Retry-After": String(
+            Math.max(1, Math.ceil((limit.resetAt.getTime() - Date.now()) / 1000)),
+          ),
+        },
+      },
+    );
+  }
+
   const body = await req.json().catch(() => null);
   const parsed = schema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: "BAD_INPUT" }, { status: 400 });

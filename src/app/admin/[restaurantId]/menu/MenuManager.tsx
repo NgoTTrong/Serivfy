@@ -7,6 +7,7 @@ import { useDialog } from "@/components/DialogProvider";
 import { Select } from "@/components/Select";
 
 type Category = { id: string; name: string; order: number };
+type Station = { id: string; name: string };
 type Item = {
   id: string;
   name: string;
@@ -17,24 +18,28 @@ type Item = {
   categoryId: string;
   category: Category;
   order: number;
+  stationId: string | null;
 };
 
 export default function MenuManager() {
   const dialog = useDialog();
   const [cats, setCats] = useState<Category[]>([]);
   const [items, setItems] = useState<Item[]>([]);
+  const [stations, setStations] = useState<Station[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [editing, setEditing] = useState<Item | null>(null);
   const [addingCat, setAddingCat] = useState(false);
   const [showNew, setShowNew] = useState(false);
 
   async function load() {
-    const [a, b] = await Promise.all([
+    const [a, b, s] = await Promise.all([
       fetch("/api/admin/categories").then((r) => r.json()),
       fetch("/api/admin/menu-items").then((r) => r.json()),
+      fetch("/api/admin/stations").then((r) => r.json()),
     ]);
     setCats(a.categories || []);
     setItems(b.items || []);
+    setStations(s.stations || []);
     setLoaded(true);
   }
   useEffect(() => {
@@ -262,6 +267,7 @@ export default function MenuManager() {
         <ItemDialog
           item={editing || undefined}
           categories={cats}
+          stations={stations}
           onClose={() => {
             setShowNew(false);
             setEditing(null);
@@ -311,11 +317,13 @@ function CategoryDialog({ onClose, onSaved }: { onClose: () => void; onSaved: ()
 function ItemDialog({
   item,
   categories,
+  stations,
   onClose,
   onSaved,
 }: {
   item?: Item;
   categories: Category[];
+  stations: Station[];
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -324,6 +332,7 @@ function ItemDialog({
   const [price, setPrice] = useState(String(item?.price || ""));
   const [catId, setCatId] = useState(item?.categoryId || categories[0]?.id || "");
   const [image, setImage] = useState(item?.image || "");
+  const [stationId, setStationId] = useState<string>(item?.stationId ?? "");
   async function save() {
     const body = {
       name,
@@ -331,6 +340,7 @@ function ItemDialog({
       price: Number(price),
       categoryId: catId,
       image: image || null,
+      stationId: stationId || null,
     };
     if (item) {
       await fetch(`/api/admin/menu-items/${item.id}`, {
@@ -383,6 +393,25 @@ function ItemDialog({
           placeholder="URL ảnh (tuỳ chọn)"
           className="w-full rounded-xl border border-ink-200 px-4 py-3"
         />
+        <div>
+          <label className="text-xs font-semibold text-ink-500">
+            In tại station nào?
+          </label>
+          <Select
+            value={stationId}
+            onChange={setStationId}
+            placeholder={stations.length === 0 ? "Chưa có station" : "— không in bếp —"}
+            options={[
+              { value: "", label: "— không in bếp (VD: nước đóng chai) —" },
+              ...stations.map((s) => ({ value: s.id, label: s.name })),
+            ]}
+          />
+          {stations.length === 0 && (
+            <p className="mt-1 text-xs text-ink-500">
+              Tạo station ở trang “Máy in” trước để tự in ticket cho bếp / bar.
+            </p>
+          )}
+        </div>
       </div>
       <div className="mt-4 flex justify-end gap-2">
         <button onClick={onClose} className="rounded-xl px-4 py-2 text-ink-600">

@@ -37,6 +37,7 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
       id: { in: profile.lastItems.map((l) => l.menuItemId) },
       restaurantId: session.restaurantId,
       isAvailable: true,
+      deletedAt: null,
     },
     select: { id: true, price: true },
   });

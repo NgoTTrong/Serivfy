@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/auth";
+import { bumpPulse } from "@/lib/pulse";
 
 const schema = z.object({
   groups: z.array(
@@ -35,7 +36,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
       },
     },
   });
-  if (!item || item.restaurantId !== staff.restaurantId) {
+  if (!item || item.restaurantId !== staff.restaurantId || item.deletedAt) {
     return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
   }
   return NextResponse.json({ groups: item.optionGroups });
@@ -58,12 +59,11 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   if (!parsed.success) return NextResponse.json({ error: "BAD_INPUT" }, { status: 400 });
 
   const item = await prisma.menuItem.findUnique({ where: { id: params.id } });
-  if (!item || item.restaurantId !== staff.restaurantId) {
+  if (!item || item.restaurantId !== staff.restaurantId || item.deletedAt) {
     return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
   }
 
   await prisma.$transaction(async (tx) => {
-    // Cascade deletes choices via FK
     await tx.menuOptionGroup.deleteMany({ where: { menuItemId: item.id } });
     for (let gi = 0; gi < parsed.data.groups.length; gi++) {
       const g = parsed.data.groups[gi];
@@ -86,5 +86,6 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     }
   });
 
+  await bumpPulse(staff.restaurantId, "menu");
   return NextResponse.json({ ok: true });
 }

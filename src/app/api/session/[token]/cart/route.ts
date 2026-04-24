@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
+import { bumpPulse } from "@/lib/pulse";
 
 export async function GET(_req: NextRequest, { params }: { params: { token: string } }) {
   const session = await prisma.tableSession.findUnique({
@@ -34,7 +35,10 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
   const parsed = addSchema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: "BAD_INPUT" }, { status: 400 });
 
-  const session = await prisma.tableSession.findUnique({ where: { token: params.token } });
+  const session = await prisma.tableSession.findUnique({
+    where: { token: params.token },
+    select: { id: true, status: true, restaurantId: true },
+  });
   if (!session || session.status === "CLOSED") {
     return NextResponse.json({ error: "SESSION_CLOSED" }, { status: 410 });
   }
@@ -47,7 +51,7 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
       },
     },
   });
-  if (!menuItem || !menuItem.isAvailable) {
+  if (!menuItem || !menuItem.isAvailable || menuItem.deletedAt) {
     return NextResponse.json({ error: "ITEM_UNAVAILABLE" }, { status: 400 });
   }
 
@@ -111,5 +115,6 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
       },
     });
   }
+  await bumpPulse(session.restaurantId, "customer");
   return NextResponse.json({ item });
 }

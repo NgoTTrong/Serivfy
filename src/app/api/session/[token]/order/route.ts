@@ -1,28 +1,42 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { prismaDirect } from "@/lib/prisma-direct";
+import { bumpPulse } from "@/lib/pulse";
+import { enqueueKitchenTickets } from "@/lib/print-dispatch";
 
 export async function POST(_req: NextRequest, { params }: { params: { token: string } }) {
   const session = await prisma.tableSession.findUnique({
     where: { token: params.token },
-    include: {
-      cartItems: { include: { menuItem: true } },
-      rounds: { orderBy: { roundNumber: "desc" }, take: 1 },
-    },
+    select: { id: true, status: true, restaurantId: true },
   });
   if (!session || session.status === "CLOSED") {
     return NextResponse.json({ error: "SESSION_CLOSED" }, { status: 410 });
   }
-  if (session.cartItems.length === 0) {
-    return NextResponse.json({ error: "CART_EMPTY" }, { status: 400 });
-  }
 
-  const nextNumber = (session.rounds[0]?.roundNumber ?? 0) + 1;
+  // Advisory lock on session id prevents two concurrent submit-cart calls from
+  // both computing the same `nextNumber` and racing on the unique index.
+  const round = await prismaDirect.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe(
+      `SELECT pg_advisory_xact_lock(hashtext($1))`,
+      `svf:session:${session.id}`,
+    );
+    const cartItems = await tx.cartItem.findMany({
+      where: { sessionId: session.id },
+      include: { menuItem: true },
+    });
+    if (cartItems.length === 0) return null;
 
-  const round = await prisma.$transaction(async (tx) => {
+    const last = await tx.orderRound.findFirst({
+      where: { sessionId: session.id },
+      orderBy: { roundNumber: "desc" },
+      select: { roundNumber: true },
+    });
+    const nextNumber = (last?.roundNumber ?? 0) + 1;
+
     const created = await tx.orderRound.create({
       data: { sessionId: session.id, roundNumber: nextNumber },
     });
-    for (const ci of session.cartItems) {
+    for (const ci of cartItems) {
       await tx.orderItem.create({
         data: {
           roundId: created.id,
@@ -30,7 +44,6 @@ export async function POST(_req: NextRequest, { params }: { params: { token: str
           menuItemId: ci.menuItemId,
           quantity: ci.quantity,
           note: ci.note,
-          // priceAtOrder is the full unit price incl. options snapshot
           priceAtOrder: ci.menuItem.price + ci.optionsPrice,
           optionsLabel: ci.optionsLabel,
           optionsPrice: ci.optionsPrice,
@@ -41,5 +54,11 @@ export async function POST(_req: NextRequest, { params }: { params: { token: str
     return created;
   });
 
+  if (!round) return NextResponse.json({ error: "CART_EMPTY" }, { status: 400 });
+
+  await bumpPulse(session.restaurantId, ["kitchen", "tables", "customer"]);
+  // Fire-and-forget: printing is non-critical — a broken printer shouldn't
+  // block the customer submitting their order.
+  enqueueKitchenTickets(round.id).catch(() => undefined);
   return NextResponse.json({ roundId: round.id, roundNumber: round.roundNumber });
 }

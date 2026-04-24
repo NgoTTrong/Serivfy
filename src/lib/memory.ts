@@ -194,11 +194,11 @@ export async function getMemoryProfile(
   if (device.lastSessionId) {
     const raw = await prisma.orderItem.findMany({
       where: { round: { sessionId: device.lastSessionId } },
-      include: { menuItem: { select: { name: true, isAvailable: true } } },
+      include: { menuItem: { select: { name: true, isAvailable: true, deletedAt: true } } },
       orderBy: { createdAt: "asc" },
     });
     lastItems = raw
-      .filter((it) => it.menuItem.isAvailable)
+      .filter((it) => it.menuItem.isAvailable && !it.menuItem.deletedAt)
       .map((it) => ({
         menuItemId: it.menuItemId,
         name: it.menuItem.name,
@@ -218,7 +218,7 @@ export async function getMemoryProfile(
     .map(([id]) => id);
   const favMenuItems = topIds.length
     ? await prisma.menuItem.findMany({
-        where: { id: { in: topIds } },
+        where: { id: { in: topIds }, deletedAt: null },
         select: { id: true, name: true, image: true },
       })
     : [];

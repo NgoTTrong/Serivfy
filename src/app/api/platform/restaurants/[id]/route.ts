@@ -61,14 +61,21 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   if (!existing) return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
 
   const data: Record<string, unknown> = {};
+  // Bump tokenVersion whenever the restaurant transitions into a non-usable state
+  // so all in-flight staff JWTs are invalidated within the auth cache TTL.
+  let bumpTokenVersion = false;
   if (parsed.data.status) {
     data.status = parsed.data.status;
     if (parsed.data.status === "SUSPENDED") {
       data.suspendedAt = new Date();
       data.suspendReason = parsed.data.suspendReason ?? "Đình chỉ bởi quản trị";
+      if (existing.status !== "SUSPENDED") bumpTokenVersion = true;
     } else {
       data.suspendedAt = null;
       data.suspendReason = null;
+    }
+    if (parsed.data.status === "EXPIRED" && existing.status !== "EXPIRED") {
+      bumpTokenVersion = true;
     }
   }
   if (parsed.data.planTier) {
@@ -87,7 +94,9 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
   const updated = await prisma.restaurant.update({
     where: { id: params.id },
-    data,
+    data: bumpTokenVersion
+      ? { ...data, tokenVersion: { increment: 1 } }
+      : data,
   });
   audit({ id: s.sub, name: s.name }, "RESTAURANT_UPDATED", params.id, parsed.data);
   return NextResponse.json({ restaurant: updated });

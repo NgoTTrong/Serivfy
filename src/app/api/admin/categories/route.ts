@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/auth";
+import { bumpPulse } from "@/lib/pulse";
 
 const schema = z.object({
   name: z.string().min(1),
@@ -16,7 +17,7 @@ export async function GET() {
     return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
   }
   const cats = await prisma.category.findMany({
-    where: { restaurantId: staff.restaurantId },
+    where: { restaurantId: staff.restaurantId, deletedAt: null },
     orderBy: { order: "asc" },
   });
   return NextResponse.json({ categories: cats });
@@ -36,5 +37,6 @@ export async function POST(req: NextRequest) {
   const c = await prisma.category.create({
     data: { ...parsed.data, restaurantId: staff.restaurantId },
   });
+  await bumpPulse(staff.restaurantId, "menu");
   return NextResponse.json({ category: c });
 }

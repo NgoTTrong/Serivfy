@@ -12,6 +12,7 @@ const schema = z.object({
   bankName: z.string().nullable().optional(),
   bankAccountNumber: z.string().nullable().optional(),
   bankAccountHolder: z.string().nullable().optional(),
+  timezone: z.string().min(1).max(60).optional(),
 });
 
 export async function GET() {
@@ -34,6 +35,7 @@ export async function GET() {
       bankName: true,
       bankAccountNumber: true,
       bankAccountHolder: true,
+      timezone: true,
     },
   });
   return NextResponse.json({ restaurant: r });
@@ -64,6 +66,7 @@ export async function PATCH(req: NextRequest) {
       bankName: true,
       bankAccountNumber: true,
       bankAccountHolder: true,
+      timezone: true,
     },
   });
   return NextResponse.json({ restaurant: r });

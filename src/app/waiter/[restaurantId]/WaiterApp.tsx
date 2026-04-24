@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { formatTime, formatVND, waitMinutes } from "@/lib/format";
 import { useDialog } from "@/components/DialogProvider";
 import { CashierDrawer } from "@/components/CashierDrawer";
+import { useRealtime } from "@/lib/use-realtime";
 
 type Item = {
   id: string;
@@ -69,6 +70,10 @@ export default function WaiterApp({
   const prevRoundIds = useRef<Set<string>>(new Set());
   const seededRounds = useRef(false);
 
+  // Waiter watches the "tables" scope (bill requests, new sessions, round
+  // status) — all mutations that affect waiter view bump that scope too.
+  const pulseVersion = useRealtime({ restaurantId, scope: "tables", fallbackIntervalMs: 3000 });
+
   useEffect(() => {
     let alive = true;
     async function load() {
@@ -113,12 +118,10 @@ export default function WaiterApp({
       setLoaded(true);
     }
     load();
-    const iv = setInterval(load, 3000);
     return () => {
       alive = false;
-      clearInterval(iv);
     };
-  }, [restaurantId]);
+  }, [restaurantId, pulseVersion]);
 
   function enableSound() {
     try {
@@ -244,6 +247,12 @@ export default function WaiterApp({
               </span>
             )}
           </button>
+          <a
+            href={`/pos/${restaurantId}`}
+            className="rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
+          >
+            🧾 POS
+          </a>
           {!soundOn ? (
             <button
               onClick={enableSound}

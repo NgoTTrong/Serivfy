@@ -30,6 +30,9 @@ type BillDetails = {
     paidAmount: number | null;
     paidAt: string | null;
     receiptNumber: string | null;
+    discountAmount: number;
+    voucherCode: string | null;
+    voucherLabel: string | null;
   };
   restaurant: {
     id: string;
@@ -46,6 +49,7 @@ type BillDetails = {
   lines: Line[];
   rawItems: RawItem[];
   subtotal: number;
+  discount: number;
   total: number;
 };
 
@@ -87,6 +91,60 @@ export function CashierDrawer({
   const [splitMode, setSplitMode] = useState<"NONE" | "BY_GUEST" | "EVEN_N">("NONE");
   const [evenN, setEvenN] = useState<number>(2);
   const receiptRef = useRef<HTMLDivElement>(null);
+  const [voucherCode, setVoucherCode] = useState("");
+  const [voucherBusy, setVoucherBusy] = useState(false);
+  const [voucherMsg, setVoucherMsg] = useState<string | null>(null);
+
+  async function applyVoucher() {
+    if (voucherBusy) return;
+    const code = voucherCode.trim();
+    if (!code) return;
+    setVoucherBusy(true);
+    setVoucherMsg(null);
+    try {
+      const r = await fetch(`/api/session/${sessionToken}/voucher`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        setVoucherMsg(d.message ?? "Không áp dụng được");
+        return;
+      }
+      dialog.toast({
+        message: `Đã áp dụng ${d.code} — giảm ${formatVND(d.discount)}`,
+        type: "success",
+      });
+      setVoucherCode("");
+      // Refresh bill to reflect new discount.
+      const nb = await fetch(`/api/session/${sessionToken}/bill-details`);
+      if (nb.ok) {
+        const nd = await nb.json();
+        setBill(nd);
+        setCashReceived(String(nd.total ?? 0));
+      }
+    } finally {
+      setVoucherBusy(false);
+    }
+  }
+
+  async function removeVoucher() {
+    const ok = await dialog.confirm({
+      icon: "🎟️",
+      title: "Gỡ mã khuyến mại?",
+      message: "Sẽ tính lại tổng theo giá gốc.",
+      confirmLabel: "Gỡ mã",
+    });
+    if (!ok) return;
+    await fetch(`/api/session/${sessionToken}/voucher`, { method: "DELETE" });
+    const nb = await fetch(`/api/session/${sessionToken}/bill-details`);
+    if (nb.ok) {
+      const nd = await nb.json();
+      setBill(nd);
+      setCashReceived(String(nd.total ?? 0));
+    }
+  }
 
   useEffect(() => {
     let alive = true;
@@ -191,6 +249,17 @@ export function CashierDrawer({
       return;
     }
     dialog.toast({ message: `${tableLabel} đã thanh toán`, type: "success" });
+
+    // Open the printable receipt in a new tab with autoprint=1 so the OS
+    // print dialog fires automatically. Using a tab (vs in-page iframe) so
+    // the browser uses its default printer + paper settings for this tab,
+    // which cashier staff configure once per workstation.
+    const sessionId = bill.session.id;
+    try {
+      window.open(`/print/receipt/${sessionId}?autoprint=1`, "_blank");
+    } catch {
+      /* popup blocked — onClosed will refresh list, user can print manually */
+    }
     onClosed();
   }
 
@@ -291,6 +360,19 @@ export function CashierDrawer({
                   <span className="text-ink-600">Tạm tính</span>
                   <span className="font-medium">{formatVND(bill.subtotal)}</span>
                 </div>
+                {bill.discount > 0 && (
+                  <div className="row flex items-baseline justify-between text-emerald-700">
+                    <span>
+                      Giảm giá{" "}
+                      {bill.session.voucherCode && (
+                        <span className="text-xs text-ink-500">
+                          ({bill.session.voucherCode})
+                        </span>
+                      )}
+                    </span>
+                    <span className="font-medium">−{formatVND(bill.discount)}</span>
+                  </div>
+                )}
                 <div className="row total-row mt-2 flex items-baseline justify-between font-display text-xl font-bold">
                   <span>TỔNG</span>
                   <span>{formatVND(bill.total)}</span>
@@ -334,6 +416,51 @@ export function CashierDrawer({
             {/* Controls panel */}
             <div className="flex flex-col overflow-y-auto bg-white p-5">
               <div>
+                <div className="text-xs font-semibold uppercase tracking-widest text-ink-500">
+                  Mã khuyến mại
+                </div>
+                {bill.session.voucherCode ? (
+                  <div className="mt-2 flex items-center justify-between rounded-xl bg-emerald-50 px-3 py-2">
+                    <div>
+                      <div className="font-mono text-sm font-bold text-emerald-800">
+                        {bill.session.voucherCode}
+                      </div>
+                      <div className="text-xs text-emerald-700">
+                        {bill.session.voucherLabel} · −{formatVND(bill.discount)}
+                      </div>
+                    </div>
+                    <button
+                      onClick={removeVoucher}
+                      className="text-xs font-semibold text-emerald-800 hover:underline"
+                    >
+                      Gỡ
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <div className="mt-2 flex gap-2">
+                      <input
+                        type="text"
+                        value={voucherCode}
+                        onChange={(e) => setVoucherCode(e.target.value.toUpperCase())}
+                        placeholder="Nhập mã"
+                        className="flex-1 rounded-xl border border-ink-200 px-3 py-2 font-mono uppercase tracking-wider"
+                      />
+                      <button
+                        onClick={applyVoucher}
+                        disabled={voucherBusy || !voucherCode.trim()}
+                        className="rounded-full bg-ink-950 px-4 py-2 text-xs font-semibold text-white hover:bg-ink-800 disabled:bg-ink-300"
+                      >
+                        {voucherBusy ? "..." : "Áp dụng"}
+                      </button>
+                    </div>
+                    {voucherMsg && (
+                      <div className="mt-1 text-xs text-red-600">{voucherMsg}</div>
+                    )}
+                  </>
+                )}
+              </div>
+              <div className="mt-5">
                 <div className="text-xs font-semibold uppercase tracking-widest text-ink-500">
                   Phương thức thanh toán
                 </div>

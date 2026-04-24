@@ -10,6 +10,7 @@ const schema = z.object({
   email: z.string().email(),
   role: z.enum(["ADMIN", "WAITER", "KITCHEN"]),
   password: z.string().min(6),
+  branchId: z.string().nullable().optional(),
 });
 
 export async function GET() {
@@ -20,8 +21,16 @@ export async function GET() {
     return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
   }
   const list = await prisma.staff.findMany({
-    where: { restaurantId: staff.restaurantId },
-    select: { id: true, name: true, email: true, role: true, createdAt: true },
+    where: { restaurantId: staff.restaurantId, isActive: true },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      role: true,
+      branchId: true,
+      branch: { select: { id: true, name: true } },
+      createdAt: true,
+    },
     orderBy: { createdAt: "asc" },
   });
   return NextResponse.json({ staff: list });
@@ -49,6 +58,7 @@ export async function POST(req: NextRequest) {
     where: {
       restaurantId: staff.restaurantId,
       role: { in: ["WAITER", "KITCHEN"] },
+      isActive: true,
     },
   });
   if (!canAddStaff(nonAdminCount, restaurant.planTier, parsed.data.role)) {
@@ -62,6 +72,15 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  if (parsed.data.branchId) {
+    const b = await prisma.branch.findUnique({
+      where: { id: parsed.data.branchId },
+      select: { restaurantId: true },
+    });
+    if (!b || b.restaurantId !== staff.restaurantId) {
+      return NextResponse.json({ error: "BAD_BRANCH" }, { status: 400 });
+    }
+  }
   const created = await prisma.staff.create({
     data: {
       restaurantId: staff.restaurantId,
@@ -69,8 +88,9 @@ export async function POST(req: NextRequest) {
       email: parsed.data.email,
       role: parsed.data.role,
       passwordHash: await bcrypt.hash(parsed.data.password, 10),
+      branchId: parsed.data.branchId ?? null,
     },
-    select: { id: true, name: true, email: true, role: true, createdAt: true },
+    select: { id: true, name: true, email: true, role: true, branchId: true, createdAt: true },
   });
   return NextResponse.json({ staff: created });
 }

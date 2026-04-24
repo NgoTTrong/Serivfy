@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { formatTime, waitMinutes } from "@/lib/format";
+import { useRealtime } from "@/lib/use-realtime";
 
 type Item = {
   id: string;
@@ -35,6 +36,11 @@ export default function KitchenScreen({
   const prevIds = useRef<Set<string>>(new Set());
   const audioCtxRef = useRef<AudioContext | null>(null);
 
+  // SSE drives refetches: the heavy kitchen query only runs on initial load
+  // and when the server signals something changed (new round, serve update).
+  // Falls back to polling if SSE fails (corporate proxy, browser block).
+  const pulseVersion = useRealtime({ restaurantId, scope: "kitchen", fallbackIntervalMs: 2500 });
+
   useEffect(() => {
     let alive = true;
     async function load() {
@@ -60,12 +66,10 @@ export default function KitchenScreen({
       }
     }
     load();
-    const iv = setInterval(load, 2500);
     return () => {
       alive = false;
-      clearInterval(iv);
     };
-  }, [restaurantId]);
+  }, [restaurantId, pulseVersion]);
 
   function enableSound() {
     try {

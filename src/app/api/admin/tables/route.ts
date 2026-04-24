@@ -8,6 +8,7 @@ const schema = z.object({
   number: z.number().int().min(1),
   label: z.string().min(1),
   capacity: z.number().int().min(1).max(50),
+  branchId: z.string().nullable().optional(),
 });
 
 export async function GET() {
@@ -20,6 +21,7 @@ export async function GET() {
   const tables = await prisma.table.findMany({
     where: { restaurantId: staff.restaurantId },
     orderBy: { number: "asc" },
+    include: { branch: { select: { id: true, name: true } } },
   });
   return NextResponse.json({ tables });
 }
@@ -53,8 +55,34 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // If no branchId supplied, default to the tenant's first active branch so
+  // legacy UIs that don't know about branches keep working.
+  let branchId = parsed.data.branchId ?? null;
+  if (branchId) {
+    const b = await prisma.branch.findUnique({
+      where: { id: branchId },
+      select: { restaurantId: true },
+    });
+    if (!b || b.restaurantId !== staff.restaurantId) {
+      return NextResponse.json({ error: "BAD_BRANCH" }, { status: 400 });
+    }
+  } else {
+    const b = await prisma.branch.findFirst({
+      where: { restaurantId: staff.restaurantId, isActive: true },
+      orderBy: { createdAt: "asc" },
+      select: { id: true },
+    });
+    branchId = b?.id ?? null;
+  }
+
   const t = await prisma.table.create({
-    data: { ...parsed.data, restaurantId: staff.restaurantId },
+    data: {
+      number: parsed.data.number,
+      label: parsed.data.label,
+      capacity: parsed.data.capacity,
+      restaurantId: staff.restaurantId,
+      branchId,
+    },
   });
   return NextResponse.json({ table: t });
 }

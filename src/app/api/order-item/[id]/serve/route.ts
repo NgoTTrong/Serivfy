@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/auth";
+import { bumpPulse } from "@/lib/pulse";
 
 const schema = z.object({
   delta: z.number().int().min(-50).max(50).default(1),
@@ -53,5 +54,6 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     });
   }
 
+  await bumpPulse(item.round.session.restaurantId, ["kitchen", "tables", "customer"]);
   return NextResponse.json({ servedQty: nextServed, roundComplete: allDone });
 }

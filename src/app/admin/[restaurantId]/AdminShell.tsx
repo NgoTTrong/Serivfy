@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ImpersonateBanner } from "@/components/ImpersonateBanner";
 import { TrialBanner } from "@/components/TrialBanner";
+import { OfflineAgentBanner } from "@/components/OfflineAgentBanner";
 
 type PlanInfo = {
   planTier: "TRIAL" | "STARTER" | "PRO" | "ENTERPRISE";
@@ -28,11 +29,18 @@ export default function AdminShell({
   const base = `/admin/${restaurantId}`;
   const nav = [
     { href: `${base}/dashboard`, label: "Dashboard", icon: "📊" },
+    { href: `/pos/${restaurantId}`, label: "POS", icon: "🧾" },
     { href: `${base}/analytics`, label: "Báo cáo", icon: "📈" },
     { href: `${base}/customers`, label: "Khách quen", icon: "💛" },
     { href: `${base}/menu`, label: "Thực đơn", icon: "🍽️" },
+    { href: `${base}/vouchers`, label: "Mã giảm", icon: "🎟️" },
     { href: `${base}/tables`, label: "Bàn & QR", icon: "🪑" },
+    { href: `${base}/branches`, label: "Chi nhánh", icon: "🏢" },
+    { href: `${base}/shifts`, label: "Quản lý ca", icon: "🕛" },
+    { href: `${base}/printers`, label: "Máy in", icon: "🖨️" },
     { href: `${base}/staff`, label: "Nhân viên", icon: "👥" },
+    { href: `${base}/audit`, label: "Nhật ký", icon: "📜" },
+    { href: `${base}/einvoices`, label: "HĐ điện tử", icon: "📄" },
     { href: `${base}/billing`, label: "Gói & thanh toán", icon: "💳" },
     { href: `${base}/settings`, label: "Cài đặt", icon: "⚙️" },
   ];
@@ -43,6 +51,8 @@ export default function AdminShell({
     <div className="min-h-screen bg-ink-50">
       <ImpersonateBanner />
       {planInfo && <TrialBanner restaurantId={restaurantId} planInfo={planInfo} />}
+      <OfflineAgentBanner />
+
       <div className="flex min-h-screen">
         <aside className="hidden w-64 flex-col border-r border-ink-100 bg-white md:flex">
           <div className="px-6 py-6">

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
+import { bumpPulse } from "@/lib/pulse";
 
 const patchSchema = z.object({
   quantity: z.number().int().min(0).max(50).optional(),
@@ -11,7 +12,10 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: { token: string; itemId: string } }
 ) {
-  const session = await prisma.tableSession.findUnique({ where: { token: params.token } });
+  const session = await prisma.tableSession.findUnique({
+    where: { token: params.token },
+    select: { id: true, status: true, restaurantId: true },
+  });
   if (!session || session.status === "CLOSED") {
     return NextResponse.json({ error: "SESSION_CLOSED" }, { status: 410 });
   }
@@ -25,12 +29,14 @@ export async function PATCH(
   }
   if (parsed.data.quantity === 0) {
     await prisma.cartItem.delete({ where: { id: item.id } });
+    await bumpPulse(session.restaurantId, "customer");
     return NextResponse.json({ deleted: true });
   }
   const upd = await prisma.cartItem.update({
     where: { id: item.id },
     data: parsed.data,
   });
+  await bumpPulse(session.restaurantId, "customer");
   return NextResponse.json({ item: upd });
 }
 
@@ -38,7 +44,10 @@ export async function DELETE(
   _req: NextRequest,
   { params }: { params: { token: string; itemId: string } }
 ) {
-  const session = await prisma.tableSession.findUnique({ where: { token: params.token } });
+  const session = await prisma.tableSession.findUnique({
+    where: { token: params.token },
+    select: { id: true, status: true, restaurantId: true },
+  });
   if (!session || session.status === "CLOSED") {
     return NextResponse.json({ error: "SESSION_CLOSED" }, { status: 410 });
   }
@@ -47,5 +56,6 @@ export async function DELETE(
     return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
   }
   await prisma.cartItem.delete({ where: { id: item.id } });
+  await bumpPulse(session.restaurantId, "customer");
   return NextResponse.json({ ok: true });
 }
