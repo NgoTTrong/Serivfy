@@ -4,5 +4,5 @@
   "buildCommand": "prisma generate && next build",
   "installCommand": "npm install",
   "outputDirectory": ".next",
-  "regions": ["nrt1"]
+  "regions": ["hnd1"]
 }
